@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Estado local de la app (contiene contraseñas Samba); vive en ~/.config/lanshare
+state.json
+*.tmp
+
+.idea/
+.vscode/
+*.swp
+.DS_Store
