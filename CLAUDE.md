@@ -6,12 +6,14 @@ Gestor web de carpetas compartidas (NFS, Samba, SSHFS) entre equipos Ubuntu de l
 
 - `lanshare.py`: un solo fichero, **solo librería estándar** de Python 3.10. No añadir dependencias.
   - `ThreadingHTTPServer` sirve `index.html` y la API JSON bajo `/api/` (función `route`, con `match`).
-  - El estado está en `~/.config/lanshare/state.json` y se protege con `LOCK`. Las contraseñas de `sudo` van en `SUDO_PW` (solo en memoria; nunca persistirlas).
+  - El estado está en `~/.config/lanshare/state.json` y se protege con `LOCK`.
+  - Las contraseñas de `sudo` van en `SUDO_PW` y se guardan **solo en memoria**. Nunca deben persistirse (ni en `state.json`, ni en logs, ni en respuestas de la API, que solo exponen `sudo_pw: bool`). Cualquier reinicio del proceso las borra: `systemctl --user restart`, `install.sh`, reiniciar el PC. Si se cambia este comportamiento, actualiza la sección «Contraseñas de sudo» del README.
   - `run_root(host, script)` ejecuta un script bash como root: en local con `sudo`; en remoto por `ssh`, con el script en base64 para que funcione con cualquier shell de login.
   - `run_user(host, cmd)` ejecuta sin `sudo`.
   - Los `*_setup_script` / `*_teardown_script` generan el bash de servidor y cliente. Todo empieza por `PRELUDE` (`ensure_pkg`, `remove_block`).
   - `preflight()` comprueba SSH y `sudo` en todos los equipos antes de cambiar nada.
 - `index.html`: interfaz en un solo fichero con JS vanilla. Todas las llamadas pasan por `api()`.
+- `install.sh`: copia `lanshare.py` e `index.html` a `~/.local/share/easy-lan-share` y genera la unidad `~/.config/systemd/user/lanshare.service`. También tiene `--port`, `--uninstall` y `--purge`. Si se añade un fichero a la app, hay que añadirlo también a la copia del instalador.
 
 ## Convenciones
 
@@ -25,8 +27,9 @@ Gestor web de carpetas compartidas (NFS, Samba, SSHFS) entre equipos Ubuntu de l
 ## Probar
 
 ```bash
-python3 -m py_compile lanshare.py
-systemctl --user restart lanshare   # reiniciar borra las contraseñas sudo en memoria
+python3 -m py_compile lanshare.py && bash -n install.sh
+python3 lanshare.py --port 8766      # desarrollo: desde el repo, sin tocar el servicio instalado
+./install.sh                         # desplegar al servicio (borra las contraseñas sudo en memoria)
 curl -s -H 'X-LanShare: 1' localhost:8765/api/state
 ```
 
