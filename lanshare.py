@@ -442,7 +442,9 @@ def validate_share(state, data, old=None):
 
 # ---------------------------------------------------------------- descubrimiento
 
-def discover():
+def discover(known_users):
+    """Busca equipos con SSH en la LAN. known_users: {ip: usuario} de los equipos ya añadidos.
+    Devuelve (equipos, nº de dispositivos ocultos por no tener SSH)."""
     found = {}
 
     def add(ip, name=None, src=None):
@@ -487,6 +489,7 @@ def discover():
         except OSError:
             return None
 
+    macs = {}
     if net:
         with cf.ThreadPoolExecutor(128) as ex:
             for ip in ex.map(probe, net.hosts()):
@@ -497,27 +500,128 @@ def discover():
         out = subprocess.run(["ip", "-4", "neigh"], capture_output=True, text=True).stdout
         for line in out.splitlines():
             ip = line.split()[0]
+            m = re.search(r"lladdr (\S+)", line)
             # Solo vecinos con MAC real; el barrido deja muchas entradas INCOMPLETE/FAILED.
-            if "lladdr" in line and ipaddress.ip_address(ip) in net:
+            if m and ipaddress.ip_address(ip) in net:
+                macs[ip] = m.group(1).lower()
                 add(ip, src="arp")
 
+    me = local_ip()
+    total = sum(1 for ip in found if ip != me)
     pending = [h for h in found.values() if not h["ssh"]]
     with cf.ThreadPoolExecutor(64) as ex:
         for h, ip in zip(pending, ex.map(probe, [h["address"] for h in pending])):
             h["ssh"] = ip is not None
 
-    def rdns(h):
+    # Solo interesan los equipos con SSH: son los únicos que LanShare puede gestionar.
+    res = [h for h in found.values() if h["ssh"] and h["address"] != me]
+    for h in res:
+        h["mac"] = macs.get(h["address"])
+        h["vendor"] = mac_vendor(h["mac"])
+
+    def enrich(h):
         if not h["name"]:
             try:
                 h["name"] = socket.gethostbyaddr(h["address"])[0].removesuffix(".local")
             except OSError:
                 pass
+        h["banner"] = ssh_banner(h["address"])
+        h["os"] = os_from_banner(h["banner"], h["vendor"])
+        h["services"] = [n for n, p in (("Samba", 445), ("NFS", 2049)) if port_open(h["address"], p)]
+        h["user"] = known_users.get(h["address"], getpass.getuser())
+        h.update(ssh_info(h["address"], h["user"]))
 
     with cf.ThreadPoolExecutor(32) as ex:
-        list(ex.map(rdns, found.values()))
-    me = local_ip()
-    res = [h for h in found.values() if h["address"] != me]
-    return sorted(res, key=lambda h: tuple(int(x) for x in h["address"].split(".")))
+        list(ex.map(enrich, res))
+
+    # Misma MAC = mismo equipo con varias IP (p. ej. cable + wifi o IP fija + DHCP).
+    by_mac, out = {}, []
+    for h in sorted(res, key=lambda h: (h["address"] not in known_users, not h.get("access"),
+                                        tuple(int(x) for x in h["address"].split(".")))):
+        first = by_mac.get(h["mac"]) if h["mac"] else None
+        if first:
+            first["aliases"].append(h["address"])
+            continue
+        h["aliases"] = []
+        if h["mac"]:
+            by_mac[h["mac"]] = h
+        out.append(h)
+    out.sort(key=lambda h: tuple(int(x) for x in h["address"].split(".")))
+    return out, total - len(res)
+
+
+OUI = {
+    "b8:27:eb": "Raspberry Pi", "dc:a6:32": "Raspberry Pi", "e4:5f:01": "Raspberry Pi",
+    "d8:3a:dd": "Raspberry Pi", "28:cd:c1": "Raspberry Pi", "2c:cf:67": "Raspberry Pi",
+    "08:00:27": "VirtualBox", "52:54:00": "QEMU/KVM", "00:0c:29": "VMware", "00:50:56": "VMware",
+    "00:11:32": "Synology", "00:08:9b": "QNAP", "24:5e:be": "QNAP",
+}
+
+
+def mac_vendor(mac):
+    if not mac:
+        return None
+    if mac[:8] in OUI:
+        return OUI[mac[:8]]
+    if int(mac[:2], 16) & 0x02:
+        return "MAC aleatoria/virtual"
+    return None
+
+
+UBUNTU_BY_OPENSSH = {"7.6": "18.04", "8.2": "20.04", "8.9": "22.04", "9.0": "22.10", "9.3": "23.10",
+                     "9.6": "24.04", "9.7": "24.10", "9.9": "25.04", "10.0": "25.10"}
+
+
+def ssh_banner(ip):
+    try:
+        with socket.create_connection((ip, 22), timeout=1.5) as s:
+            s.settimeout(2)
+            return s.recv(256).decode(errors="replace").strip()
+    except OSError:
+        return ""
+
+
+def os_from_banner(banner, vendor=None):
+    """Deduce el sistema a partir del banner SSH (sin autenticarse)."""
+    if m := re.search(r"OpenSSH_(\d+\.\d+)\S* Ubuntu", banner):
+        rel = UBUNTU_BY_OPENSSH.get(m.group(1))
+        return f"Ubuntu {rel}" if rel else "Ubuntu"
+    if m := re.search(r"Debian.*deb(\d+)", banner):
+        base = f"Debian {m.group(1)}"
+        return f"Raspberry Pi OS ({base})" if vendor == "Raspberry Pi" else base
+    if "Debian" in banner:
+        return "Debian"
+    if "dropbear" in banner.lower():
+        return "Router / sistema embebido"
+    if m := re.search(r"OpenSSH_([\d.]+)", banner):
+        return f"OpenSSH {m.group(1)} (sistema desconocido)"
+    return banner[:40] or None
+
+
+def port_open(ip, port):
+    try:
+        with socket.create_connection((ip, port), timeout=0.8):
+            return True
+    except OSError:
+        return False
+
+
+def ssh_info(ip, user):
+    """Si nuestra clave ya entra, obtiene datos reales del equipo. Sin tocar known_hosts."""
+    script = ('hostname; . /etc/os-release 2>/dev/null; echo "${PRETTY_NAME:-}"; '
+              'sudo -n true 2>/dev/null && echo SUDO_NOPASS || echo SUDO_PASS')
+    cmd = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=3", "-o", "StrictHostKeyChecking=no",
+           "-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR", f"{user}@{ip}",
+           f"bash -c 'S=$(echo {b64(script)} | base64 -d); exec bash -c \"$S\"'"]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+    except subprocess.TimeoutExpired:
+        return {"access": False}
+    lines = p.stdout.strip().splitlines()
+    if p.returncode != 0 or len(lines) < 3:
+        return {"access": False}
+    return {"access": True, "hostname": lines[0].strip(), "os_exact": lines[1].strip() or None,
+            "sudo_nopass": lines[-1].strip() == "SUDO_NOPASS"}
 
 
 # ---------------------------------------------------------------- HTTP
@@ -598,8 +702,11 @@ def route(method, parts, data, qs):
             return public_state(state)
 
         case ("POST", ["discover"]):
-            known = {h["address"] for h in state["hosts"]}
-            return {"found": [{**h, "known": h["address"] in known} for h in discover()]}
+            known = {h["address"]: h["user"] for h in state["hosts"] if not h.get("local")}
+            hosts, hidden = discover(known)
+            for h in hosts:
+                h["known"] = any(ip in known for ip in [h["address"], *h["aliases"]])
+            return {"found": hosts, "hidden": hidden}
 
         case ("POST", ["hosts"]):
             addr = (data.get("address") or "").strip()

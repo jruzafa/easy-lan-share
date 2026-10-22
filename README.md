@@ -18,7 +18,12 @@ Corre en un único equipo y controla el resto por SSH: exporta la carpeta en el 
 
 ## Funcionalidades
 
-- **Descubrimiento de equipos** en la LAN (mDNS, barrido del puerto 22 y tabla ARP).
+- **Descubrimiento de equipos** en la LAN (mDNS, barrido del puerto 22 y tabla ARP). Solo se listan los equipos con SSH, que son los gestionables, y de cada uno se muestra:
+  - sistema operativo: exacto si tu clave ya entra, o estimado por el banner SSH si no;
+  - MAC y fabricante, por ejemplo Raspberry Pi;
+  - IP adicionales del mismo equipo;
+  - si tu clave tiene acceso y si `sudo` pide contraseña;
+  - si ya comparte por Samba o NFS.
 - **Tres tipos de compartición:**
   - **NFS**: nativo de Linux y rápido. Opción para escribir siempre como el propietario de la carpeta y evitar problemas de UID.
   - **Samba**: con usuario y contraseña, compatible con Windows.

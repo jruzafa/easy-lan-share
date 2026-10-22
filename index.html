@@ -57,6 +57,11 @@
   dialog { border: 0; border-radius: 14px; padding: 0; width: min(640px, calc(100vw - 32px)); background: var(--card); color: var(--fg);
            box-shadow: 0 20px 60px rgba(0,0,0,.3); }
   dialog::backdrop { background: rgba(10,12,16,.45); }
+  dialog.wide { width: min(940px, calc(100vw - 32px)); }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .pill.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); }
+  .pill.warn { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+  td code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
   .dlg-h { padding: 16px 20px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 16px; }
   .dlg-b { padding: 18px 20px; max-height: 70vh; overflow: auto; }
   .dlg-f { padding: 12px 20px; border-top: 1px solid var(--line); display: flex; justify-content: flex-end; gap: 8px; }
@@ -165,7 +170,7 @@
 </form></dialog>
 
 <!-- Descubrimiento -->
-<dialog id="dlgDisc"><div class="dlg-h">Equipos encontrados en la red</div>
+<dialog id="dlgDisc" class="wide"><div class="dlg-h">Equipos encontrados en la red</div>
   <div class="dlg-b"><div id="discList"></div></div>
   <div class="dlg-f"><button class="btn" onclick="dlgDisc.close()">Cerrar</button></div>
 </dialog>
@@ -350,15 +355,29 @@ function saveSudo() { guard(async () => { await api('POST', `hosts/${sudoHost}/s
 let found = [];
 function doDiscover() { guard(async () => {
   const j = await api('POST', 'discover', {}, 'Buscando equipos en la red local…');
-  found = j.found.sort((a, b) => b.ssh - a.ssh);
-  $('discList').innerHTML = found.length ? `<table><thead><tr><th>Equipo</th><th>IP</th><th>SSH</th><th></th></tr></thead><tbody>${found.map((h, i) => `<tr>
-      <td>${esc(h.name || '—')}</td><td>${esc(h.address)}</td><td>${h.ssh ? '✔' : '<span class="hint">no</span>'}</td>
-      <td class="r">${h.known ? '<span class="hint">ya añadido</span>' : `<button class="btn sm ${h.ssh ? 'primary' : ''}" onclick="addFound(${i})">Añadir</button>`}</td></tr>`).join('')}</tbody></table>
-      <p class="hint">Solo los equipos con SSH abierto pueden gestionarse. En un Ubuntu: <code>sudo apt install openssh-server</code></p>`
-    : '<p class="empty">No se encontró ningún equipo.</p>';
+  found = j.found;
+  const row = (h, i) => {
+    const sub = [h.mac, h.vendor].filter(Boolean).join(' · ');
+    const access = h.access
+      ? `<span class="pill ok">✔ tu clave entra (${esc(h.user)})</span>${h.sudo_nopass ? '<span class="pill ok">sudo sin contraseña</span>' : '<span class="pill">sudo con contraseña</span>'}`
+      : `<span class="pill warn">sin acceso con tu clave</span><div class="sub">Autorízala: <code>ssh-copy-id ${esc(h.user)}@${esc(h.address)}</code></div>`;
+    const svc = h.services.map(s => `<span class="pill">ya comparte ${s}</span>`).join('');
+    return `<tr>
+      <td><b>${esc(h.hostname || h.name || '—')}</b><div class="sub">${esc(sub)}</div>
+        ${h.aliases.length ? `<div class="sub">también en ${h.aliases.map(esc).join(', ')}</div>` : ''}</td>
+      <td>${esc(h.address)}</td>
+      <td>${esc(h.os_exact || h.os || '—')}${!h.os_exact && h.os ? '<div class="sub">según el banner SSH</div>' : ''}</td>
+      <td>${access}${svc ? '<div style="margin-top:4px">' + svc + '</div>' : ''}</td>
+      <td class="r">${h.known ? '<span class="hint">ya añadido</span>' : `<button class="btn sm primary" onclick="addFound(${i})">Añadir</button>`}</td></tr>`;
+  };
+  const sshHint = `<p class="hint">Solo aparecen los equipos con SSH, que son los únicos que LanShare puede gestionar${j.hidden ? ` (se han ocultado ${j.hidden} dispositivos sin SSH)` : ''}.
+      Para que un equipo Ubuntu aparezca en el listado, instala el servidor SSH en él: <code>sudo apt install openssh-server</code></p>`;
+  $('discList').innerHTML = (found.length
+    ? `<table><thead><tr><th>Equipo</th><th>IP</th><th>Sistema</th><th>Acceso</th><th></th></tr></thead><tbody>${found.map(row).join('')}</tbody></table>`
+    : '<p class="empty">No se encontró ningún equipo con SSH.</p>') + sshHint;
   dlgDisc.showModal();
 }); }
-function addFound(i) { dlgDisc.close(); const h = found[i]; openHost(null, { name: h.name || h.address, address: h.address }); }
+function addFound(i) { dlgDisc.close(); const h = found[i]; openHost(null, { name: h.hostname || h.name || h.address, address: h.address, user: h.user }); }
 
 guard(() => api('GET', 'state'));
 </script>
