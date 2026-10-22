@@ -141,8 +141,6 @@ cat <<EOF
    1. Abre $URL → Equipos → Buscar en la red.
    2. Autoriza tu clave en cada equipo:  ssh-copy-id usuario@ip
    3. Si sudo pide contraseña en algún equipo, indícala con el botón «Sudo».
-      Se guarda solo en memoria: se pierde al reiniciar el servicio, el PC
-      o al volver a ejecutar este instalador.
 
   Servicio:      systemctl --user status|restart|stop $APP_NAME
   Registro:      journalctl --user -u $APP_NAME -f
