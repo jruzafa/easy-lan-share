@@ -4,6 +4,18 @@ Gestor web para crear y administrar carpetas compartidas entre equipos Ubuntu de
 
 Corre en un único equipo y controla el resto por SSH: exporta la carpeta en el equipo servidor y la monta en los clientes, todo desde una interfaz web sencilla.
 
+![Listado de comparticiones](docs/screenshots/comparticiones.png)
+
+## Capturas
+
+**Equipos gestionados:** el propio equipo y los remotos añadidos tras buscarlos en la red.
+
+![Equipos](docs/screenshots/equipos.png)
+
+**Crear o editar una compartición:** el tipo, el servidor y la carpeta, los clientes y el punto de montaje.
+
+<img src="docs/screenshots/editar-comparticion.png" alt="Editar compartición" width="480">
+
 ## Funcionalidades
 
 - **Descubrimiento de equipos** en la LAN (mDNS, barrido del puerto 22 y tabla ARP).
