@@ -29,6 +29,7 @@ Corre en un único equipo y controla el resto por SSH: exporta la carpeta en el 
   - **Samba**: con usuario y contraseña, compatible con Windows.
   - **SSHFS**: cifrado por SSH, sin servicios extra en el servidor.
 - **Gestión completa:** crear, editar, reaplicar, comprobar el montaje, ver el registro y borrar.
+- **Edición segura:** si los cambios fallan, se deshacen y se vuelve a montar la versión anterior.
 - **Montajes persistentes** en `/etc/fstab` con `x-systemd.automount` y `nofail`: sobreviven a reinicios y no bloquean el arranque si el servidor está apagado.
 - **Comprobación previa** de SSH y `sudo` en todos los equipos antes de cambiar nada.
 - Instala automáticamente los paquetes que falten (`nfs-kernel-server`, `nfs-common`, `samba`, `cifs-utils`, `sshfs`).
@@ -102,6 +103,7 @@ LanShare necesita `sudo` en cada equipo para crear, editar, reaplicar o borrar c
 - **Se pierde** al reiniciar el PC, al cerrar sesión, al reiniciar o parar el servicio y al instalar o actualizar con `install.sh`.
 - La columna **Sudo** de la pestaña Equipos indica si hay una contraseña cargada («contraseña en memoria»).
 - Al crear o editar una compartición, el diálogo comprueba `sudo` en el servidor y los clientes elegidos. Si a alguno le falta la contraseña, o la guardada es incorrecta, lo avisa y no deja crear hasta indicarla.
+- Al **Reaplicar** o **Borrar** pasa lo mismo: si falta alguna contraseña, la pide y después continúa sola.
 - Si aun así falta, LanShare **no cambia nada**: la comprobación previa lo detecta y dice en qué equipos hay que indicarla.
 
 Las comparticiones ya creadas **no** necesitan la contraseña para funcionar. Solo hace falta para gestionarlas.
@@ -152,6 +154,11 @@ Las comparticiones funcionan aunque LanShare esté parado; la app solo hace falt
 lanshare.py   servidor HTTP, API y generación de los scripts que se ejecutan en los equipos
 index.html    interfaz web (HTML, CSS y JS sin dependencias)
 install.sh    instalador / desinstalador (genera la unidad de systemd --user)
+tests/        pruebas (python3 -m unittest discover -s tests); no tocan ningún equipo
 docs/         capturas del README
 CLAUDE.md     notas para agentes de IA (AGENTS.md es un enlace a este fichero)
 ```
+
+## Licencia
+
+[MIT](LICENSE).
