@@ -12,6 +12,8 @@ Gestor web de carpetas compartidas (NFS, Samba, SSHFS) entre equipos Ubuntu de l
   - `run_user(host, cmd)` ejecuta sin `sudo`.
   - Los `*_setup_script` / `*_teardown_script` generan el bash de servidor y cliente. Todo empieza por `PRELUDE` (`ensure_pkg`, `remove_block`).
   - `preflight()` comprueba SSH y `sudo` en todos los equipos antes de cambiar nada.
+  - `sudo_status()` (`POST /api/sudo-check`) hace la misma comprobación sin lanzar error; el diálogo de compartición la usa para avisar antes de crear si falta la contraseña de sudo.
+  - No interpoles en bash campos de texto libre, como el nombre del equipo, que puede venir de mDNS. Solo van datos validados.
 - `index.html`: interfaz en un solo fichero con JS vanilla. Todas las llamadas pasan por `api()`.
 - `install.sh`: copia `lanshare.py` e `index.html` a `~/.local/share/easy-lan-share` y genera la unidad `~/.config/systemd/user/lanshare.service`. También tiene `--port`, `--uninstall` y `--purge`. Si se añade un fichero a la app, hay que añadirlo también a la copia del instalador.
 

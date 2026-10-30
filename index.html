@@ -90,6 +90,8 @@
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg);
            padding: 10px 18px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; max-width: 90vw; }
   .toast.on { opacity: 1; } .toast.err { background: var(--err); color: #fff; }
+  .note.warn { background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  .note.warn ul { margin: 6px 0 0; padding-left: 18px; } .note.warn li { margin: 4px 0; }
   .hidden { display: none !important; }
   @media (max-width: 640px) { .share { grid-template-columns: auto 1fr; } .actions { grid-column: 1 / -1; justify-content: flex-start; } .types { grid-template-columns: 1fr; } }
 </style>
@@ -150,6 +152,7 @@
     </div>
     <p class="hint t-sshfs">Se crea una clave SSH dedicada en cada cliente y se autoriza en el servidor automáticamente.</p>
     <p class="hint">El montaje se añade a <code>/etc/fstab</code> con automontaje: sobrevive a reinicios y no bloquea el arranque si el servidor está apagado.</p>
+    <div id="sudoWarn" class="note warn hidden" style="margin:12px 0 0"></div>
   </div>
   <div class="dlg-f"><button class="btn" type="button" onclick="dlgShare.close()">Cancelar</button><button class="btn primary" type="button" onclick="saveShare()" id="shareSave">Crear</button></div>
 </form></dialog>
@@ -286,7 +289,33 @@ function openShare(id) {
   $('sRO').checked = !!s?.readonly; $('sMap').checked = s ? s.map_owner !== false : true;
   $('sSmbName').value = s?.smb_name || ''; $('sSmbUser').value = s?.smb_user || ''; $('sSmbPw').value = '';
   $('pwHint').textContent = s?.type === 'samba' ? 'Déjala vacía para mantener la actual.' : '';
-  syncType(); dlgShare.showModal();
+  syncType(); dlgShare.showModal(); checkSudo();
+}
+$('sServer').addEventListener('change', checkSudo);
+$('sClients').addEventListener('change', checkSudo);
+
+/* Avisa antes de crear si algún equipo implicado necesita la contraseña de sudo. */
+let sudoCheck = {}, sudoSeq = 0;
+const shareHostIds = () => [...new Set([$('sServer').value, ...shareForm().clients])].filter(Boolean);
+async function checkSudo() {
+  const ids = shareHostIds(), seq = ++sudoSeq, w = $('sudoWarn');
+  if (!ids.length) { w.classList.add('hidden'); return; }
+  w.className = 'note'; w.style.margin = '12px 0 0'; w.innerHTML = '<span class="hint">Comprobando sudo en los equipos…</span>';
+  try {
+    const j = await api('POST', 'sudo-check', { ids });
+    if (seq !== sudoSeq) return;
+    sudoCheck = j.sudo; renderSudoWarn();
+  } catch (e) { if (seq === sudoSeq) w.classList.add('hidden'); }
+}
+function sudoPending() { return shareHostIds().filter(id => sudoCheck[id]?.status === 'need_pw'); }
+function renderSudoWarn() {
+  const w = $('sudoWarn'), ids = shareHostIds();
+  const need = sudoPending(), bad = ids.filter(id => sudoCheck[id]?.status === 'error');
+  w.className = 'note warn' + (need.length || bad.length ? '' : ' hidden');
+  w.innerHTML = (need.length ? `<b>Falta la contraseña de sudo</b> en estos equipos. Indícala antes de crear la compartición:<ul>${need.map(id =>
+      `<li>${esc(hostById(id).name)}${sudoCheck[id].wrong ? ' <span class="pill warn">la guardada es incorrecta</span>' : ''}
+        <button class="btn sm" type="button" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('')}</ul>` : '')
+    + (bad.length ? `<b>No se puede conectar</b> con:<ul>${bad.map(id => `<li>${esc(hostById(id).name)}: <span class="hint">${esc(sudoCheck[id].msg.split('\n')[0])}</span></li>`).join('')}</ul>` : '');
 }
 $('sPath').addEventListener('change', () => {
   const n = $('sPath').value.replace(/\/+$/, '').split('/').pop();
@@ -301,6 +330,7 @@ function shareForm() {
 }
 const resultLog = (j, okMsg) => { j.share_status === 'ok' ? toast(okMsg) : showLog('Hubo errores', j.log); };
 function saveShare() { guard(async () => {
+  if (sudoPending().length) { toast('Indica primero la contraseña de sudo de: ' + sudoPending().map(id => hostById(id).name).join(', '), true); return; }
   const body = shareForm();
   const j = editing ? await api('PUT', 'shares/' + editing, body, 'Aplicando cambios en los equipos…')
                     : await api('POST', 'shares', body, 'Configurando servidor y clientes (puede instalar paquetes)…');
@@ -351,7 +381,10 @@ function saveHost() { guard(async () => {
 function delHost(id) { guard(async () => { if (confirm('¿Quitar este equipo de la lista?')) { await api('DELETE', 'hosts/' + id); toast('Equipo quitado'); } }); }
 function testHost(id) { guard(async () => { const j = await api('POST', `hosts/${id}/test`, {}, 'Conectando…'); showLog(j.ok ? 'Conexión correcta' : 'Fallo de conexión', j.log); }); }
 function openSudo(id) { sudoHost = id; $('sudoLbl').textContent = 'Contraseña de sudo en ' + hostById(id).name; $('sudoPw').value = ''; dlgSudo.showModal(); }
-function saveSudo() { guard(async () => { await api('POST', `hosts/${sudoHost}/sudo`, { password: $('sudoPw').value }); dlgSudo.close(); toast('Guardado'); }); }
+function saveSudo() { guard(async () => {
+  await api('POST', `hosts/${sudoHost}/sudo`, { password: $('sudoPw').value }); dlgSudo.close(); toast('Guardado');
+  if (dlgShare.open) checkSudo();
+}); }
 let found = [];
 function doDiscover() { guard(async () => {
   const j = await api('POST', 'discover', {}, 'Buscando equipos en la red local…');
