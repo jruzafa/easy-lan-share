@@ -97,9 +97,9 @@ loginctl enable-linger $USER
    1. **Tipo:** NFS, Samba o SSHFS.
    2. **Origen:** el equipo servidor, la carpeta y, según el tipo, sus opciones (usuario y contraseña Samba, escribir como el propietario en NFS).
    3. **Destino:** los clientes, el punto de montaje y si es de solo lectura.
-   4. **Resumen:** revisa todo antes de crear; **Cambiar** vuelve al paso. Si a algún equipo le falta la contraseña de sudo, lo avisa con un botón para indicarla ahí mismo.
+   4. **Resumen:** revisa todo antes de crear; **Cambiar** vuelve al paso. Si a algún equipo le falta la contraseña de sudo, muestra un aviso urgente en rojo con un botón para indicarla ahí mismo.
 
-   Al pulsar **Crear** se vuelve a comprobar `sudo` en todos los equipos implicados. Si falta alguna contraseña, aparece un aviso urgente con los equipos afectados. Al indicarlas, la compartición se crea sola.
+   Al pulsar **Crear** se vuelve a comprobar `sudo` en todos los equipos implicados. Si falta alguna contraseña, se muestran los equipos afectados y, al indicarlas, la compartición se crea sola.
 
    Al **Editar** una compartición, el asistente se abre directamente en el resumen.
 
@@ -111,7 +111,7 @@ LanShare necesita `sudo` en cada equipo para crear, editar, reaplicar o borrar c
 - **Se pierde** al reiniciar el PC, al cerrar sesión, al reiniciar o parar el servicio y al instalar o actualizar con `install.sh`.
 - La columna **Sudo** de la pestaña Equipos indica si hay una contraseña cargada («contraseña en memoria»).
 - Al crear o editar una compartición, el diálogo comprueba `sudo` en el servidor y los clientes elegidos. Si a alguno le falta la contraseña, o la guardada es incorrecta, lo avisa y no deja crear hasta indicarla.
-- Al pulsar **Crear**, **Reaplicar** o **Borrar** se vuelve a comprobar en ese momento. Si falta alguna contraseña, aparece un aviso urgente con los equipos afectados y, al indicarlas, la acción continúa sola.
+- Al pulsar **Crear**, **Reaplicar** o **Borrar** se vuelve a comprobar en ese momento. Si falta alguna contraseña, se muestran los equipos afectados y, al indicarlas, la acción continúa sola.
 - Si aun así falta, LanShare **no cambia nada**: la comprobación previa lo detecta y dice en qué equipos hay que indicarla.
 
 Las comparticiones ya creadas **no** necesitan la contraseña para funcionar. Solo hace falta para gestionarlas.

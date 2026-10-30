@@ -89,18 +89,19 @@
   .sum dt { color: var(--muted); } .sum dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
   .sum code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
   @media (max-width: 640px) { .steps .t { display: none; } .steps button { justify-content: center; } .sum dl { grid-template-columns: 1fr; gap: 2px; } .sum dd { margin-bottom: 6px; } }
-  dialog.urgent { border: 2px solid var(--err); animation: shake .45s ease-in-out; }
-  dialog.urgent::backdrop { background: color-mix(in srgb, var(--err) 22%, rgba(10,12,16,.55)); }
-  dialog.urgent .dlg-h { display: flex; align-items: center; gap: 10px; color: var(--err);
-                         background: color-mix(in srgb, var(--err) 10%, transparent); border-bottom-color: color-mix(in srgb, var(--err) 35%, var(--line)); }
-  dialog.urgent .ico { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--err); color: #fff;
-                       font-weight: 800; font-size: 15px; flex: 0 0 auto; }
-  .need-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
-  .need-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px;
-                  border: 1px solid color-mix(in srgb, var(--err) 35%, var(--line)); background: color-mix(in srgb, var(--err) 6%, transparent); }
+  /* Aviso urgente del resumen del asistente: falta la contraseña de sudo en algún equipo. */
+  .note.urgent { border: 1.5px solid var(--err); background: color-mix(in srgb, var(--err) 10%, transparent); }
+  .note.urgent .urgent-h { display: flex; align-items: center; gap: 10px; color: var(--err); font-weight: 700; margin-bottom: 4px; }
+  .note.urgent .ico { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--err); color: #fff;
+                      font-weight: 800; font-size: 14px; flex: 0 0 auto; }
+  .note.urgent.shake { animation: shake .45s ease-in-out; }
+  .need-list { list-style: none; padding: 0; margin: 10px 0; display: grid; gap: 8px; }
+  .need-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 12px; border-radius: 10px;
+                  border: 1px solid var(--line); background: var(--card); }
   .need-list li .btn { margin-left: auto; }
+  .note.urgent .need-list li { border-color: color-mix(in srgb, var(--err) 35%, var(--line)); }
   @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
-  @media (prefers-reduced-motion: reduce) { dialog.urgent { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .note.urgent.shake { animation: none; } }
   .types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .types label { margin: 0; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; font-weight: 400; }
   .types input { display: none; }
@@ -250,9 +251,9 @@
   <div class="dlg-f" id="logFoot"><button class="btn" onclick="dlgLog.close()">Cerrar</button></div>
 </dialog>
 
-<!-- Aviso urgente: falta sudo antes de crear, reaplicar o borrar -->
-<dialog id="dlgNeed" class="urgent" role="alertdialog" aria-labelledby="needTitle" aria-describedby="needMsg">
-  <div class="dlg-h"><span class="ico" aria-hidden="true">!</span><span id="needTitle">Faltan contraseñas de sudo</span></div>
+<!-- Falta sudo antes de crear, reaplicar o borrar -->
+<dialog id="dlgNeed" aria-labelledby="needTitle" aria-describedby="needMsg">
+  <div class="dlg-h" id="needTitle">Faltan contraseñas de sudo</div>
   <div class="dlg-b"><p style="margin-top:0" id="needMsg"></p>
     <ul id="needList" class="need-list"></ul>
     <p class="hint">No se ha cambiado nada en los equipos. Al indicar las contraseñas se continuará automáticamente.</p></div>
@@ -445,10 +446,13 @@ function sudoPending() { return shareHostIds().filter(id => sudoCheck[id]?.statu
 function renderSudoWarn() {
   const w = $('sudoWarn'), ids = shareHostIds();
   const need = sudoPending(), bad = ids.filter(id => sudoCheck[id]?.status === 'error');
-  w.className = 'note warn' + (need.length || bad.length ? '' : ' hidden');
-  w.innerHTML = (need.length ? `<b>Falta la contraseña de sudo</b> en estos equipos. Indícala antes de crear la compartición:<ul>${need.map(id =>
-      `<li>${esc(hostById(id).name)}${sudoCheck[id].wrong ? ' <span class="pill warn">la guardada es incorrecta</span>' : ''}
-        <button class="btn sm" type="button" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('')}</ul>` : '')
+  w.className = 'note ' + (need.length ? 'urgent' : 'warn') + (need.length || bad.length ? '' : ' hidden');
+  w.setAttribute('role', need.length ? 'alert' : 'status');
+  w.innerHTML = (need.length ? `<div class="urgent-h"><span class="ico" aria-hidden="true">!</span>${need.length === 1
+      ? 'Falta una contraseña de sudo' : `Faltan ${need.length} contraseñas de sudo`}</div>
+      Sin ellas no se puede ${editing ? 'aplicar los cambios' : 'crear la compartición'}. Indícalas en estos equipos:<ul class="need-list">${need.map(id =>
+      `<li><b>${esc(hostById(id).name)}</b> <span class="hint">${esc(hostById(id).address)}</span>${sudoCheck[id].wrong ? ' <span class="pill warn">la guardada es incorrecta</span>' : ''}
+        <button class="btn sm primary" type="button" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('')}</ul>` : '')
     + (bad.length ? `<b>No se puede conectar</b> con:<ul>${bad.map(id => `<li>${esc(hostById(id).name)}: <span class="hint">${esc(sudoCheck[id].msg.split('\n')[0])}</span></li>`).join('')}</ul>` : '');
 }
 $('sPath').addEventListener('change', () => {
@@ -471,7 +475,7 @@ const resultLog = (j, okMsg) => {
 const shareIds = s => [...new Set([s.server, ...s.clients])];
 
 /* Antes de crear, reaplicar o borrar: comprueba sudo en ese momento. Si falta alguna contraseña,
-   muestra el aviso urgente y, cuando estén todas, continúa con retry(). */
+   muestra el aviso y, cuando estén todas, continúa con retry(). */
 let sudoRetry = null;
 async function ensureSudo(ids, retry, what) {
   const j = await api('POST', 'sudo-check', { ids }, 'Comprobando sudo en los equipos…');
@@ -480,11 +484,12 @@ async function ensureSudo(ids, retry, what) {
   const need = ids.filter(id => j.sudo[id]?.status === 'need_pw');
   sudoRetry = need.length ? { ids, retry, what } : null;
   if (!need.length) return true;
+  if (dlgShare.open) { const w = $('sudoWarn'); w.classList.remove('shake'); void w.offsetWidth; w.classList.add('shake'); w.scrollIntoView({ block: 'nearest' }); }
   $('needTitle').textContent = need.length === 1 ? 'Falta una contraseña de sudo' : `Faltan ${need.length} contraseñas de sudo`;
   $('needMsg').innerHTML = `Sin ellas no se puede <b>${esc(what)}</b>. Indícalas en estos equipos:`;
   $('needList').innerHTML = need.map(id => `<li><b>${esc(hostById(id).name)}</b> <span class="hint">${esc(hostById(id).address)}</span>
     ${j.sudo[id].wrong ? '<span class="pill warn">la guardada es incorrecta</span>' : ''}
-    <button class="btn sm primary" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('');
+    <button class="btn sm" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('');
   if (!dlgNeed.open) dlgNeed.showModal();
   return false;
 }
