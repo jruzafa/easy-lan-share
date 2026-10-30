@@ -27,7 +27,8 @@ CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / 
 STATE_FILE = CONFIG_DIR / "state.json"
 SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=6", "-o", "StrictHostKeyChecking=accept-new"]
 
-LOCK = threading.RLock()
+LOCK = threading.RLock()  # protege state.json; solo se retiene para leerlo o guardarlo
+OPS = threading.Lock()    # serializa las operaciones que cambian los equipos (pueden tardar minutos)
 SUDO_PW = {}  # host_id -> contraseña sudo, solo en memoria
 
 
@@ -53,6 +54,29 @@ def local_ip():
         return re.search(r"\bsrc (\S+)", out).group(1)
     except Exception:
         return "127.0.0.1"
+
+
+def fresh_state():
+    with LOCK:
+        state = load_state()
+        ensure_local_host(state)
+        return state
+
+
+def store_share(share, delete=False):
+    """Guarda o quita una compartición sobre el estado actual, sin pisar otros cambios hechos mientras tanto."""
+    with LOCK:
+        state = fresh_state()
+        i = next((n for n, s in enumerate(state["shares"]) if s["id"] == share["id"]), None)
+        if delete:
+            if i is not None:
+                del state["shares"][i]
+        elif i is None:
+            state["shares"].append(share)
+        else:
+            state["shares"][i] = share
+        save_state(state)
+        return state
 
 
 def ensure_local_host(state):
@@ -327,9 +351,9 @@ echo "Desmontado y quitado de fstab: $MP"
 
 # ---------------------------------------------------------------- operaciones
 
-def preflight(state, share):
+def preflight(state, *shares):
     """Comprueba SSH y sudo en todos los equipos implicados antes de tocar nada."""
-    ids = list(dict.fromkeys([share["server"], *share["clients"]]))
+    ids = list(dict.fromkeys(i for s in shares for i in [s["server"], *s["clients"]]))
     hosts = [get_host(state, i) for i in ids]
     with cf.ThreadPoolExecutor(len(hosts)) as ex:
         results = list(ex.map(lambda h: run_root(h, "true", 30), hosts))
@@ -449,6 +473,8 @@ def validate_share(state, data, old=None):
         pw = data.get("smb_password") or (old or {}).get("smb_password")
         if not pw:
             raise ApiError("Indica la contraseña Samba")
+        if any(c in pw for c in "\n\r\0"):
+            raise ApiError("La contraseña Samba no puede tener saltos de línea")
         share["smb_password"] = pw
     if not share["name"]:
         share["name"] = Path(share["path"]).name or share["path"]
@@ -587,7 +613,8 @@ def mac_vendor(mac):
 
 
 UBUNTU_BY_OPENSSH = {"7.6": "18.04", "8.2": "20.04", "8.9": "22.04", "9.0": "22.10", "9.3": "23.10",
-                     "9.6": "24.04", "9.7": "24.10", "9.9": "25.04", "10.0": "25.10"}
+                     "9.6": "24.04", "9.7": "24.10", "9.9": "25.04", "10.0": "25.10",
+                     "10.2": "26.04", "10.5": "26.10"}
 
 
 def ssh_banner(ip):
@@ -711,9 +738,7 @@ def public_state(state):
 
 
 def route(method, parts, data, qs):
-    with LOCK:
-        state = load_state()
-        ensure_local_host(state)
+    state = fresh_state()
 
     match (method, parts):
         case ("GET", ["state"]):
@@ -760,14 +785,20 @@ def route(method, parts, data, qs):
             return public_state(state)
 
         case ("DELETE", ["hosts", hid]):
-            with LOCK:
-                state = load_state()
-                used = [s["name"] for s in state["shares"] if s["server"] == hid or hid in s["clients"]]
-                if used:
-                    raise ApiError("Lo usan estas comparticiones: " + ", ".join(used))
-                state["hosts"] = [h for h in state["hosts"] if h["id"] != hid or h.get("local")]
-                SUDO_PW.pop(hid, None)
-                save_state(state)
+            # No se quita un equipo mientras una operación en curso puede estar usándolo.
+            if not OPS.acquire(blocking=False):
+                raise ApiError("Hay una operación en curso en los equipos; espera a que termine", 409)
+            try:
+                with LOCK:
+                    state = load_state()
+                    used = [s["name"] for s in state["shares"] if s["server"] == hid or hid in s["clients"]]
+                    if used:
+                        raise ApiError("Lo usan estas comparticiones: " + ", ".join(used))
+                    state["hosts"] = [h for h in state["hosts"] if h["id"] != hid or h.get("local")]
+                    SUDO_PW.pop(hid, None)
+                    save_state(state)
+            finally:
+                OPS.release()
             return public_state(state)
 
         case ("POST", ["hosts", hid, "sudo"]):
@@ -799,38 +830,41 @@ def route(method, parts, data, qs):
             return {"path": path, "dirs": [d for d in out.splitlines() if d]}
 
         case ("POST", ["shares"]):
-            with LOCK:
-                state = load_state()
-                ensure_local_host(state)
+            with OPS:
+                state = fresh_state()
                 share = validate_share(state, data)
                 preflight(state, share)
-                log = apply_share(state, share)
-                share["log"] = log
-                state["shares"].append(share)
-                save_state(state)
-            return {"share_status": share["status"], "log": log, **public_state(state)}
+                share["log"] = apply_share(state, share)
+                state = store_share(share)
+            return {"share_status": share["status"], "log": share["log"], **public_state(state)}
 
         case ("PUT", ["shares", sid]):
-            with LOCK:
-                state = load_state()
-                ensure_local_host(state)
+            with OPS:
+                state = fresh_state()
                 old = get_share(state, sid)
                 new = validate_share(state, data, old)
-                preflight(state, new)
-                _, log1 = teardown_share(state, old)
-                log2 = apply_share(state, new)
-                new["log"] = log1 + "\n\n— aplicando cambios —\n\n" + log2
-                state["shares"] = [new if s["id"] == sid else s for s in state["shares"]]
-                save_state(state)
-            return {"share_status": new["status"], "log": new["log"], **public_state(state)}
+                preflight(state, old, new)  # también los equipos de la versión anterior, por si hay que restaurarla
+                _, log = teardown_share(state, old)
+                log += "\n\n— aplicando cambios —\n\n" + apply_share(state, new)
+                rolled_back = new["status"] != "ok"
+                if rolled_back:
+                    # Si los cambios fallan, se deshacen y se vuelve a montar la versión anterior.
+                    _, undo = teardown_share(state, new)
+                    log += "\n\n— hubo errores: deshaciendo los cambios —\n\n" + undo
+                    log += "\n\n— restaurando la configuración anterior —\n\n" + apply_share(state, old)
+                saved = old if rolled_back else new
+                saved["log"] = log
+                state = store_share(saved)
+            return {"share_status": new["status"], "rolled_back": rolled_back, "restored_status": old["status"],
+                    "log": log, **public_state(state)}
 
         case ("POST", ["shares", sid, "apply"]):
-            with LOCK:
-                state = load_state()
+            with OPS:
+                state = fresh_state()
                 share = get_share(state, sid)
                 preflight(state, share)
                 share["log"] = apply_share(state, share)
-                save_state(state)
+                state = store_share(share)
             return {"share_status": share["status"], "log": share["log"], **public_state(state)}
 
         case ("POST", ["shares", sid, "check"]):
@@ -838,14 +872,13 @@ def route(method, parts, data, qs):
 
         case ("DELETE", ["shares", sid]):
             force = (qs.get("force") or ["0"])[0] == "1"
-            with LOCK:
-                state = load_state()
+            with OPS:
+                state = fresh_state()
                 share = get_share(state, sid)
                 ok, log = teardown_share(state, share)
                 if not ok and not force:
                     return {"deleted": False, "log": log, **public_state(state)}
-                state["shares"] = [s for s in state["shares"] if s["id"] != sid]
-                save_state(state)
+                state = store_share(share, delete=True)
             return {"deleted": True, "log": log, **public_state(state)}
 
     raise ApiError("Ruta no encontrada", 404)
