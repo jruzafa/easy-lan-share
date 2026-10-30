@@ -82,10 +82,12 @@
   .browse-list { border: 1px solid var(--line); border-radius: 8px; max-height: 300px; overflow: auto; }
   .browse-list div { padding: 7px 12px; cursor: pointer; border-bottom: 1px solid var(--line); }
   .browse-list div:hover { background: var(--chip); }
-  .busy { position: fixed; inset: 0; background: rgba(10,12,16,.35); display: none; align-items: center; justify-content: center; z-index: 50; }
-  .busy.on { display: flex; }
-  .busy div { background: var(--card); padding: 18px 26px; border-radius: 12px; display: flex; gap: 12px; align-items: center; }
-  .spin { width: 18px; height: 18px; border: 2.5px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: s 0.8s linear infinite; }
+  /* La capa de carga es un <dialog> modal para quedar por encima de los demás diálogos abiertos. */
+  dialog.busy { width: auto; max-width: min(460px, calc(100vw - 32px)); padding: 18px 26px; }
+  dialog.busy[open] { display: flex; gap: 14px; align-items: center; }
+  .spin { flex: 0 0 auto; display: inline-block; vertical-align: -3px; width: 18px; height: 18px; border: 2.5px solid var(--line);
+          border-top-color: var(--accent); border-radius: 50%; animation: s 0.8s linear infinite; }
+  .spin.sm { width: 13px; height: 13px; border-width: 2px; vertical-align: -2px; margin-right: 6px; }
   @keyframes s { to { transform: rotate(360deg); } }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--fg); color: var(--bg);
            padding: 10px 18px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 60; max-width: 90vw; }
@@ -199,7 +201,14 @@
   <div class="dlg-f" id="logFoot"><button class="btn" onclick="dlgLog.close()">Cerrar</button></div>
 </dialog>
 
-<div class="busy" id="busy"><div><span class="spin"></span><span id="busyMsg">Trabajando…</span></div></div>
+<!-- Falta sudo antes de reaplicar o borrar -->
+<dialog id="dlgNeed"><div class="dlg-h">Falta la contraseña de sudo</div>
+  <div class="dlg-b"><p style="margin-top:0">Para continuar, indica la contraseña de sudo en estos equipos:</p>
+    <ul id="needList" style="padding-left:18px; line-height:2.2"></ul><p class="hint">Al guardarla se continuará automáticamente.</p></div>
+  <div class="dlg-f"><button class="btn" onclick="dlgNeed.close()">Cancelar</button></div>
+</dialog>
+
+<dialog class="busy" id="busy"><span class="spin"></span><div><div id="busyMsg">Trabajando…</div><div class="sub" id="busyTime"></div></div></dialog>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -209,8 +218,19 @@ const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
 const hostById = id => S.hosts.find(h => h.id === id) || { name: '¿' + id + '?', address: '' };
 
+let busyN = 0, busyT = null;
+function busyOn(msg) {
+  $('busyMsg').textContent = msg;
+  if (busyN++) return;
+  const t0 = Date.now(); $('busyTime').textContent = '';
+  busyT = setInterval(() => { const s = Math.round((Date.now() - t0) / 1000); $('busyTime').textContent = s >= 3 ? `${s} s` : ''; }, 1000);
+  $('busy').showModal();
+}
+function busyOff() { if (--busyN) return; clearInterval(busyT); $('busy').close(); }
+$('busy').addEventListener('cancel', e => e.preventDefault());
+
 async function api(method, path, body, msg) {
-  if (msg) { $('busyMsg').textContent = msg; $('busy').classList.add('on'); }
+  if (msg) busyOn(msg);
   try {
     const r = await fetch('/api/' + path, { method, headers: { 'Content-Type': 'application/json', 'X-LanShare': '1' },
                                             body: body ? JSON.stringify(body) : undefined });
@@ -218,7 +238,7 @@ async function api(method, path, body, msg) {
     if (!r.ok) throw new Error(j.error || r.statusText);
     if (j.hosts) { S = { hosts: j.hosts, shares: j.shares, me: j.me }; render(); }
     return j;
-  } finally { $('busy').classList.remove('on'); }
+  } finally { if (msg) busyOff(); }
 }
 function toast(t, err) { const el = $('toast'); el.textContent = t; el.className = 'toast on' + (err ? ' err' : ''); clearTimeout(el._t); el._t = setTimeout(() => el.className = 'toast', 3500); }
 async function guard(fn) { try { await fn(); } catch (e) { e.message.includes('\n') ? showLog('No se pudo completar', e.message) : toast(e.message, true); } }
@@ -300,7 +320,7 @@ const shareHostIds = () => [...new Set([$('sServer').value, ...shareForm().clien
 async function checkSudo() {
   const ids = shareHostIds(), seq = ++sudoSeq, w = $('sudoWarn');
   if (!ids.length) { w.classList.add('hidden'); return; }
-  w.className = 'note'; w.style.margin = '12px 0 0'; w.innerHTML = '<span class="hint">Comprobando sudo en los equipos…</span>';
+  w.className = 'note'; w.style.margin = '12px 0 0'; w.innerHTML = '<span class="hint"><span class="spin sm"></span>Comprobando sudo en los equipos…</span>';
   try {
     const j = await api('POST', 'sudo-check', { ids });
     if (seq !== sudoSeq) return;
@@ -328,7 +348,26 @@ function shareForm() {
     readonly: $('sRO').checked, map_owner: $('sMap').checked,
     smb_name: $('sSmbName').value, smb_user: $('sSmbUser').value, smb_password: $('sSmbPw').value };
 }
-const resultLog = (j, okMsg) => { j.share_status === 'ok' ? toast(okMsg) : showLog('Hubo errores', j.log); };
+const resultLog = (j, okMsg) => {
+  if (j.share_status === 'ok') return toast(okMsg);
+  showLog(!j.rolled_back ? 'Hubo errores' : j.restored_status === 'ok'
+    ? 'No se aplicaron los cambios: se ha restaurado la versión anterior'
+    : 'No se aplicaron los cambios, y la versión anterior también da errores', j.log);
+};
+const shareIds = s => [...new Set([s.server, ...s.clients])];
+
+/* Antes de reaplicar o borrar: si falta sudo, pide la contraseña y luego continúa con retry(). */
+let sudoRetry = null;
+async function ensureSudo(ids, retry) {
+  const j = await api('POST', 'sudo-check', { ids }, 'Comprobando sudo en los equipos…');
+  const need = ids.filter(id => j.sudo[id]?.status === 'need_pw');
+  sudoRetry = need.length ? { ids, retry } : null;
+  if (!need.length) return true;
+  $('needList').innerHTML = need.map(id => `<li>${esc(hostById(id).name)}${j.sudo[id].wrong ? ' <span class="pill warn">la guardada es incorrecta</span>' : ''}
+    <button class="btn sm" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('');
+  if (!dlgNeed.open) dlgNeed.showModal();
+  return false;
+}
 function saveShare() { guard(async () => {
   if (sudoPending().length) { toast('Indica primero la contraseña de sudo de: ' + sudoPending().map(id => hostById(id).name).join(', '), true); return; }
   const body = shareForm();
@@ -336,16 +375,20 @@ function saveShare() { guard(async () => {
                     : await api('POST', 'shares', body, 'Configurando servidor y clientes (puede instalar paquetes)…');
   dlgShare.close(); resultLog(j, editing ? 'Compartición actualizada' : 'Compartición creada y montada');
 }); }
-function applyShare(id) { guard(async () => resultLog(await api('POST', `shares/${id}/apply`, {}, 'Reaplicando…'), 'Reaplicada correctamente')); }
+function applyShare(id) { guard(async () => {
+  if (!await ensureSudo(shareIds(S.shares.find(x => x.id === id)), () => applyShare(id))) return;
+  resultLog(await api('POST', `shares/${id}/apply`, {}, 'Reaplicando en el servidor y los clientes…'), 'Reaplicada correctamente');
+}); }
 function viewLog(id) { const s = S.shares.find(x => x.id === id); showLog('Registro: ' + s.name, s.log); }
 function checkShare(id) { guard(async () => {
   const j = await api('POST', `shares/${id}/check`, {}, 'Comprobando montajes…');
   showLog('Estado del montaje', Object.entries(j.result).map(([k, v]) => `${k}: ${v}`).join('\n'));
 }); }
-function delShare(id, force) { guard(async () => {
+function delShare(id, force, confirmed) { guard(async () => {
   const s = S.shares.find(x => x.id === id);
-  if (!force && !confirm(`¿Borrar «${s.name}»? Se desmontará en los clientes y dejará de compartirse (los archivos NO se borran).`)) return;
-  const j = await api('DELETE', `shares/${id}${force ? '?force=1' : ''}`, null, 'Eliminando…');
+  if (!force && !confirmed && !confirm(`¿Borrar «${s.name}»? Se desmontará en los clientes y dejará de compartirse (los archivos NO se borran).`)) return;
+  if (!force && !await ensureSudo(shareIds(s), () => delShare(id, false, true))) return;
+  const j = await api('DELETE', `shares/${id}${force ? '?force=1' : ''}`, null, 'Desmontando en los clientes y dejando de compartir…');
   if (j.deleted) { toast('Compartición eliminada'); if (force) dlgLog.close(); }
   else showLog('No se pudo limpiar todo', j.log, `<button class="btn danger" onclick="delShare('${id}', true)">Quitar de la lista igualmente</button>`);
 }); }
@@ -354,7 +397,7 @@ function delShare(id, force) { guard(async () => {
 let bServer = null;
 function browse() { bServer = $('sServer').value; browseTo($('sPath').value || '/home/' + hostById(bServer).user); dlgBrowse.showModal(); }
 function browseTo(p) { guard(async () => {
-  const j = await api('GET', `hosts/${bServer}/browse?path=${encodeURIComponent(p || '/')}`);
+  const j = await api('GET', `hosts/${bServer}/browse?path=${encodeURIComponent(p || '/')}`, null, 'Leyendo carpetas…');
   $('bPath').value = j.path;
   const up = j.path === '/' ? '' : `<div data-p="${esc(j.path.replace(/\/[^/]+$/, '') || '/')}">⬑ ..</div>`;
   $('bList').innerHTML = up + j.dirs.map(d => `<div data-p="${esc((j.path === '/' ? '' : j.path) + '/' + d)}">📁 ${esc(d)}</div>`).join('');
@@ -375,15 +418,16 @@ function openHost(id, pre) {
   dlgHost.showModal();
 }
 function saveHost() { guard(async () => {
-  await api('POST', 'hosts', { id: editingHost, name: $('hName').value, address: $('hAddr').value, user: $('hUser').value, port: $('hPort').value });
+  await api('POST', 'hosts', { id: editingHost, name: $('hName').value, address: $('hAddr').value, user: $('hUser').value, port: $('hPort').value }, 'Guardando equipo…');
   dlgHost.close(); toast('Equipo guardado');
 }); }
-function delHost(id) { guard(async () => { if (confirm('¿Quitar este equipo de la lista?')) { await api('DELETE', 'hosts/' + id); toast('Equipo quitado'); } }); }
+function delHost(id) { guard(async () => { if (confirm('¿Quitar este equipo de la lista?')) { await api('DELETE', 'hosts/' + id, null, 'Quitando equipo…'); toast('Equipo quitado'); } }); }
 function testHost(id) { guard(async () => { const j = await api('POST', `hosts/${id}/test`, {}, 'Conectando…'); showLog(j.ok ? 'Conexión correcta' : 'Fallo de conexión', j.log); }); }
 function openSudo(id) { sudoHost = id; $('sudoLbl').textContent = 'Contraseña de sudo en ' + hostById(id).name; $('sudoPw').value = ''; dlgSudo.showModal(); }
 function saveSudo() { guard(async () => {
-  await api('POST', `hosts/${sudoHost}/sudo`, { password: $('sudoPw').value }); dlgSudo.close(); toast('Guardado');
+  await api('POST', `hosts/${sudoHost}/sudo`, { password: $('sudoPw').value }, 'Guardando contraseña…'); dlgSudo.close(); toast('Guardado');
   if (dlgShare.open) checkSudo();
+  if (dlgNeed.open && sudoRetry) { const r = sudoRetry; if (await ensureSudo(r.ids, r.retry)) { dlgNeed.close(); r.retry(); } }
 }); }
 let found = [];
 function doDiscover() { guard(async () => {
@@ -412,7 +456,7 @@ function doDiscover() { guard(async () => {
 }); }
 function addFound(i) { dlgDisc.close(); const h = found[i]; openHost(null, { name: h.hostname || h.name || h.address, address: h.address, user: h.user }); }
 
-guard(() => api('GET', 'state'));
+guard(() => api('GET', 'state', null, 'Cargando…'));
 </script>
 </body>
 </html>
