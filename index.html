@@ -70,6 +70,37 @@
   input[type=text], input[type=password], input[type=number], select {
     width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font: inherit; }
   .row { display: flex; gap: 8px; } .row > * { flex: 1; } .row > .btn { flex: 0 0 auto; }
+  .steps { display: flex; gap: 6px; padding: 14px 20px 0; }
+  .steps button { flex: 1; display: flex; align-items: center; gap: 8px; border: 0; border-bottom: 3px solid var(--line); background: none;
+                  padding: 4px 2px 10px; color: var(--muted); font: inherit; font-size: 13.5px; cursor: pointer; text-align: left; }
+  .steps button:disabled { cursor: default; opacity: .7; }
+  .steps .n { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+              background: var(--chip); color: var(--muted); }
+  .steps button.done { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+  .steps button.done .n { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+  .steps button.cur { color: var(--fg); font-weight: 600; border-color: var(--accent); }
+  .steps button.cur .n { background: var(--accent); color: var(--accent-fg); }
+  .step { min-height: 280px; }
+  .sum { border: 1px solid var(--line); border-radius: 10px; margin-bottom: 10px; }
+  .sum-h { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line);
+           font-weight: 600; font-size: 13.5px; }
+  .sum-h button { background: none; border: 0; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; padding: 0; }
+  .sum dl { display: grid; grid-template-columns: 150px 1fr; gap: 6px 12px; margin: 0; padding: 10px 12px; font-size: 13.5px; }
+  .sum dt { color: var(--muted); } .sum dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+  .sum code { background: var(--chip); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+  @media (max-width: 640px) { .steps .t { display: none; } .steps button { justify-content: center; } .sum dl { grid-template-columns: 1fr; gap: 2px; } .sum dd { margin-bottom: 6px; } }
+  dialog.urgent { border: 2px solid var(--err); animation: shake .45s ease-in-out; }
+  dialog.urgent::backdrop { background: color-mix(in srgb, var(--err) 22%, rgba(10,12,16,.55)); }
+  dialog.urgent .dlg-h { display: flex; align-items: center; gap: 10px; color: var(--err);
+                         background: color-mix(in srgb, var(--err) 10%, transparent); border-bottom-color: color-mix(in srgb, var(--err) 35%, var(--line)); }
+  dialog.urgent .ico { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--err); color: #fff;
+                       font-weight: 800; font-size: 15px; flex: 0 0 auto; }
+  .need-list { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+  .need-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px;
+                  border: 1px solid color-mix(in srgb, var(--err) 35%, var(--line)); background: color-mix(in srgb, var(--err) 6%, transparent); }
+  .need-list li .btn { margin-left: auto; }
+  @keyframes shake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+  @media (prefers-reduced-motion: reduce) { dialog.urgent { animation: none; } }
   .types { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .types label { margin: 0; border: 1.5px solid var(--line); border-radius: 10px; padding: 10px; cursor: pointer; font-weight: 400; }
   .types input { display: none; }
@@ -124,39 +155,57 @@
   </section>
 </main>
 
-<!-- Compartición -->
+<!-- Compartición: asistente en 4 pasos -->
 <dialog id="dlgShare"><form method="dialog" onsubmit="return false">
   <div class="dlg-h" id="shareTitle">Nueva compartición</div>
+  <div class="steps" id="wizSteps"></div>
   <div class="dlg-b">
-    <label>Tipo</label>
-    <div class="types">
-      <label><input type="radio" name="type" value="nfs" checked><b>NFS</b><small>Nativo Linux, rápido. Ideal en LAN.</small></label>
-      <label><input type="radio" name="type" value="samba"><b>Samba</b><small>Con usuario y contraseña. Compatible con Windows.</small></label>
-      <label><input type="radio" name="type" value="sshfs"><b>SSHFS</b><small>Cifrado por SSH. Sin servicios extra.</small></label>
-    </div>
-    <label>Nombre</label><input type="text" id="sName" placeholder="p. ej. Fotos">
-    <label>Equipo que comparte la carpeta (servidor)</label><select id="sServer"></select>
-    <label>Carpeta a compartir</label>
-    <div class="row"><input type="text" id="sPath" placeholder="/home/usuario/Compartido"><button class="btn" type="button" onclick="browse()">Examinar…</button></div>
-    <label>Equipos que la montarán (clientes)</label><div class="clients checks" id="sClients"></div>
-    <label>Punto de montaje en los clientes</label><input type="text" id="sMount" placeholder="/mnt/compartido">
-    <div class="checks" style="margin-top:12px">
-      <label><input type="checkbox" id="sRO"> Solo lectura</label>
-      <label class="t-nfs"><input type="checkbox" id="sMap" checked> Escribir siempre como el propietario de la carpeta (evita problemas de permisos)</label>
-    </div>
-    <div class="t-samba">
-      <div class="row">
-        <div><label>Nombre del recurso</label><input type="text" id="sSmbName" placeholder="(nombre de la carpeta)"></div>
-        <div><label>Usuario Samba</label><input type="text" id="sSmbUser" placeholder="(usuario del servidor)"></div>
+    <section class="step" data-step="0">
+      <p class="hint" style="margin-top:0">¿Cómo quieres compartir la carpeta?</p>
+      <div class="types">
+        <label><input type="radio" name="type" value="nfs" checked><b>NFS</b><small>Nativo Linux, rápido. Ideal en LAN.</small></label>
+        <label><input type="radio" name="type" value="samba"><b>Samba</b><small>Con usuario y contraseña. Compatible con Windows.</small></label>
+        <label><input type="radio" name="type" value="sshfs"><b>SSHFS</b><small>Cifrado por SSH. Sin servicios extra.</small></label>
       </div>
-      <label>Contraseña Samba</label><input type="password" id="sSmbPw" autocomplete="new-password">
-      <div class="hint" id="pwHint"></div>
-    </div>
-    <p class="hint t-sshfs">Se crea una clave SSH dedicada en cada cliente y se autoriza en el servidor automáticamente.</p>
-    <p class="hint">El montaje se añade a <code>/etc/fstab</code> con automontaje: sobrevive a reinicios y no bloquea el arranque si el servidor está apagado.</p>
-    <div id="sudoWarn" class="note warn hidden" style="margin:12px 0 0"></div>
+    </section>
+
+    <section class="step" data-step="1">
+      <label>Equipo que comparte la carpeta (servidor)</label><select id="sServer"></select>
+      <label>Carpeta a compartir</label>
+      <div class="row"><input type="text" id="sPath" placeholder="/home/usuario/Compartido"><button class="btn" type="button" onclick="browse()">Examinar…</button></div>
+      <label>Nombre</label><input type="text" id="sName" placeholder="p. ej. Fotos">
+      <div class="checks t-nfs" style="margin-top:12px">
+        <label><input type="checkbox" id="sMap" checked> Escribir siempre como el propietario de la carpeta (evita problemas de permisos)</label>
+      </div>
+      <div class="t-samba">
+        <div class="row">
+          <div><label>Nombre del recurso</label><input type="text" id="sSmbName" placeholder="(nombre de la carpeta)"></div>
+          <div><label>Usuario Samba</label><input type="text" id="sSmbUser" placeholder="(usuario del servidor)"></div>
+        </div>
+        <label>Contraseña Samba</label><input type="password" id="sSmbPw" autocomplete="new-password">
+        <div class="hint" id="pwHint"></div>
+      </div>
+      <p class="hint t-sshfs">Se crea una clave SSH dedicada en cada cliente y se autoriza en el servidor automáticamente.</p>
+    </section>
+
+    <section class="step" data-step="2">
+      <label>Equipos que la montarán (clientes)</label><div class="clients checks" id="sClients"></div>
+      <label>Punto de montaje en los clientes</label><input type="text" id="sMount" placeholder="/mnt/compartido">
+      <div class="checks" style="margin-top:12px"><label><input type="checkbox" id="sRO"> Solo lectura</label></div>
+      <p class="hint">El montaje se añade a <code>/etc/fstab</code> con automontaje: sobrevive a reinicios y no bloquea el arranque si el servidor está apagado.</p>
+    </section>
+
+    <section class="step" data-step="3">
+      <div id="wizSummary"></div>
+      <div id="sudoWarn" class="note warn hidden" style="margin:12px 0 0"></div>
+    </section>
   </div>
-  <div class="dlg-f"><button class="btn" type="button" onclick="dlgShare.close()">Cancelar</button><button class="btn primary" type="button" onclick="saveShare()" id="shareSave">Crear</button></div>
+  <div class="dlg-f">
+    <button class="btn" type="button" onclick="dlgShare.close()" style="margin-right:auto">Cancelar</button>
+    <button class="btn" type="button" id="wizBack" onclick="goStep(step - 1)">← Atrás</button>
+    <button class="btn primary" type="button" id="wizNext" onclick="goStep(step + 1)">Siguiente →</button>
+    <button class="btn primary" type="button" onclick="saveShare()" id="shareSave">Crear</button>
+  </div>
 </form></dialog>
 
 <!-- Equipo -->
@@ -201,10 +250,12 @@
   <div class="dlg-f" id="logFoot"><button class="btn" onclick="dlgLog.close()">Cerrar</button></div>
 </dialog>
 
-<!-- Falta sudo antes de reaplicar o borrar -->
-<dialog id="dlgNeed"><div class="dlg-h">Falta la contraseña de sudo</div>
-  <div class="dlg-b"><p style="margin-top:0">Para continuar, indica la contraseña de sudo en estos equipos:</p>
-    <ul id="needList" style="padding-left:18px; line-height:2.2"></ul><p class="hint">Al guardarla se continuará automáticamente.</p></div>
+<!-- Aviso urgente: falta sudo antes de crear, reaplicar o borrar -->
+<dialog id="dlgNeed" class="urgent" role="alertdialog" aria-labelledby="needTitle" aria-describedby="needMsg">
+  <div class="dlg-h"><span class="ico" aria-hidden="true">!</span><span id="needTitle">Faltan contraseñas de sudo</span></div>
+  <div class="dlg-b"><p style="margin-top:0" id="needMsg"></p>
+    <ul id="needList" class="need-list"></ul>
+    <p class="hint">No se ha cambiado nada en los equipos. Al indicar las contraseñas se continuará automáticamente.</p></div>
   <div class="dlg-f"><button class="btn" onclick="dlgNeed.close()">Cancelar</button></div>
 </dialog>
 
@@ -296,10 +347,11 @@ function fillHosts(server, clients) {
   $('sServer').innerHTML = S.hosts.map(h => `<option value="${h.id}" ${h.id === server ? 'selected' : ''}>${esc(h.name)} (${esc(h.address)})</option>`).join('');
   $('sClients').innerHTML = S.hosts.map(h => `<label><input type="checkbox" value="${h.id}" ${clients.includes(h.id) ? 'checked' : ''}> ${esc(h.name)} <span class="hint">${esc(h.address)}</span></label>`).join('');
 }
+let editingShare = null;
 function openShare(id) {
   if (S.hosts.length < 2 && !id) { toast('Añade primero al menos otro equipo en la pestaña Equipos', true); return; }
   const s = id ? S.shares.find(x => x.id === id) : null;
-  editing = id || null;
+  editing = id || null; editingShare = s;
   $('shareTitle').textContent = s ? 'Editar compartición' : 'Nueva compartición';
   $('shareSave').textContent = s ? 'Guardar y aplicar' : 'Crear';
   document.querySelector(`input[name=type][value=${s ? s.type : 'nfs'}]`).checked = true;
@@ -309,10 +361,72 @@ function openShare(id) {
   $('sRO').checked = !!s?.readonly; $('sMap').checked = s ? s.map_owner !== false : true;
   $('sSmbName').value = s?.smb_name || ''; $('sSmbUser').value = s?.smb_user || ''; $('sSmbPw').value = '';
   $('pwHint').textContent = s?.type === 'samba' ? 'Déjala vacía para mantener la actual.' : '';
-  syncType(); dlgShare.showModal(); checkSudo();
+  syncType();
+  // Al editar se abre en el resumen, con todos los pasos accesibles.
+  maxStep = s ? STEPS.length - 1 : 0; step = 0; goStep(maxStep, true);
+  dlgShare.showModal(); (s ? $('shareSave') : $('wizNext')).focus();
 }
-$('sServer').addEventListener('change', checkSudo);
-$('sClients').addEventListener('change', checkSudo);
+
+/* ---------- asistente ---------- */
+const STEPS = ['Tipo', 'Origen', 'Destino', 'Resumen'];
+const TYPE_INFO = { nfs: 'NFS · nativo Linux', samba: 'Samba · usuario y contraseña', sshfs: 'SSHFS · cifrado por SSH' };
+let step = 0, maxStep = 0;
+function stepError(i) {
+  const f = shareForm();
+  if (i === 1) {
+    if (!f.server) return 'Elige el equipo servidor';
+    if (!f.path.trim().startsWith('/')) return 'Indica la carpeta a compartir (ruta absoluta, p. ej. /home/usuario/Fotos)';
+    if (f.type === 'samba' && !f.smb_password && editingShare?.type !== 'samba') return 'Indica la contraseña Samba';
+  }
+  if (i === 2) {
+    if (!f.clients.length) return 'Elige al menos un equipo cliente';
+    if (!f.mountpoint.trim().startsWith('/')) return 'Indica el punto de montaje (ruta absoluta, p. ej. /mnt/fotos)';
+  }
+  return null;
+}
+function goStep(n, skipCheck) {
+  n = Math.max(0, Math.min(STEPS.length - 1, n));
+  if (!skipCheck) for (let i = 0; i < n; i++) {
+    const err = stepError(i);
+    if (err) { toast(err, true); n = i; break; }
+  }
+  step = n; maxStep = Math.max(maxStep, n);
+  document.querySelectorAll('#dlgShare .step').forEach(el => el.classList.toggle('hidden', +el.dataset.step !== n));
+  $('wizSteps').innerHTML = STEPS.map((t, i) => `<button type="button" class="${i === n ? 'cur' : i <= maxStep ? 'done' : ''}"
+      ${i > maxStep ? 'disabled' : ''} onclick="goStep(${i})"><span class="n">${i < n ? '✓' : i + 1}</span><span class="t">${t}</span></button>`).join('');
+  const last = n === STEPS.length - 1;
+  $('wizBack').classList.toggle('hidden', n === 0);
+  $('wizNext').classList.toggle('hidden', last);
+  $('shareSave').classList.toggle('hidden', !last);
+  if (last) { renderSummary(); checkSudo(); }
+  else { const first = document.querySelector(`#dlgShare .step[data-step="${n}"] input:not([type=radio]):not([type=checkbox]), #dlgShare .step[data-step="${n}"] select`);
+         if (first && dlgShare.open) first.focus(); }
+}
+function renderSummary() {
+  const f = shareForm(), srv = hostById(f.server);
+  const yes = b => b ? 'Sí' : 'No';
+  const box = (title, i, rows) => `<div class="sum"><div class="sum-h">${title}<button type="button" onclick="goStep(${i})">Cambiar</button></div>
+      <dl>${rows.filter(Boolean).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl></div>`;
+  const smbPw = f.smb_password ? 'nueva' : editingShare?.type === 'samba' ? 'se mantiene la actual' : '—';
+  $('wizSummary').innerHTML =
+    box('Tipo', 0, [['Compartir por', `<b>${esc(TYPE_INFO[f.type])}</b>`]]) +
+    box('Origen', 1, [
+      ['Servidor', `<b>${esc(srv.name)}</b> <span class="hint">${esc(srv.address)}</span>`],
+      ['Carpeta', `<code>${esc(f.path)}</code>`],
+      ['Nombre', esc(f.name || f.path.replace(/\/+$/, '').split('/').pop())],
+      f.type === 'nfs' && ['Escribir como propietario', yes(f.map_owner)],
+      f.type === 'samba' && ['Recurso', `<code>//${esc(srv.address)}/${esc(f.smb_name || f.path.replace(/\/+$/, '').split('/').pop())}</code>`],
+      f.type === 'samba' && ['Usuario Samba', esc(f.smb_user || srv.user)],
+      f.type === 'samba' && ['Contraseña', smbPw],
+      f.type === 'sshfs' && ['Acceso', 'clave SSH dedicada en cada cliente'],
+    ]) +
+    box('Destino', 2, [
+      ['Clientes', f.clients.map(c => `<span class="pill">${esc(hostById(c).name)}</span>`).join('')],
+      ['Punto de montaje', `<code>${esc(f.mountpoint)}</code>`],
+      ['Acceso', f.readonly ? 'solo lectura' : 'lectura y escritura'],
+      ['Montaje', 'automático en <code>/etc/fstab</code>, sobrevive a reinicios'],
+    ]);
+}
 
 /* Avisa antes de crear si algún equipo implicado necesita la contraseña de sudo. */
 let sudoCheck = {}, sudoSeq = 0;
@@ -356,27 +470,33 @@ const resultLog = (j, okMsg) => {
 };
 const shareIds = s => [...new Set([s.server, ...s.clients])];
 
-/* Antes de reaplicar o borrar: si falta sudo, pide la contraseña y luego continúa con retry(). */
+/* Antes de crear, reaplicar o borrar: comprueba sudo en ese momento. Si falta alguna contraseña,
+   muestra el aviso urgente y, cuando estén todas, continúa con retry(). */
 let sudoRetry = null;
-async function ensureSudo(ids, retry) {
+async function ensureSudo(ids, retry, what) {
   const j = await api('POST', 'sudo-check', { ids }, 'Comprobando sudo en los equipos…');
+  sudoCheck = { ...sudoCheck, ...j.sudo };
+  if (dlgShare.open) renderSudoWarn();
   const need = ids.filter(id => j.sudo[id]?.status === 'need_pw');
-  sudoRetry = need.length ? { ids, retry } : null;
+  sudoRetry = need.length ? { ids, retry, what } : null;
   if (!need.length) return true;
-  $('needList').innerHTML = need.map(id => `<li>${esc(hostById(id).name)}${j.sudo[id].wrong ? ' <span class="pill warn">la guardada es incorrecta</span>' : ''}
-    <button class="btn sm" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('');
+  $('needTitle').textContent = need.length === 1 ? 'Falta una contraseña de sudo' : `Faltan ${need.length} contraseñas de sudo`;
+  $('needMsg').innerHTML = `Sin ellas no se puede <b>${esc(what)}</b>. Indícalas en estos equipos:`;
+  $('needList').innerHTML = need.map(id => `<li><b>${esc(hostById(id).name)}</b> <span class="hint">${esc(hostById(id).address)}</span>
+    ${j.sudo[id].wrong ? '<span class="pill warn">la guardada es incorrecta</span>' : ''}
+    <button class="btn sm primary" onclick="openSudo('${id}')">Indicar contraseña</button></li>`).join('');
   if (!dlgNeed.open) dlgNeed.showModal();
   return false;
 }
 function saveShare() { guard(async () => {
-  if (sudoPending().length) { toast('Indica primero la contraseña de sudo de: ' + sudoPending().map(id => hostById(id).name).join(', '), true); return; }
+  if (!await ensureSudo(shareHostIds(), saveShare, editing ? 'aplicar los cambios' : 'crear la compartición')) return;
   const body = shareForm();
   const j = editing ? await api('PUT', 'shares/' + editing, body, 'Aplicando cambios en los equipos…')
                     : await api('POST', 'shares', body, 'Configurando servidor y clientes (puede instalar paquetes)…');
   dlgShare.close(); resultLog(j, editing ? 'Compartición actualizada' : 'Compartición creada y montada');
 }); }
 function applyShare(id) { guard(async () => {
-  if (!await ensureSudo(shareIds(S.shares.find(x => x.id === id)), () => applyShare(id))) return;
+  if (!await ensureSudo(shareIds(S.shares.find(x => x.id === id)), () => applyShare(id), 'reaplicar la compartición')) return;
   resultLog(await api('POST', `shares/${id}/apply`, {}, 'Reaplicando en el servidor y los clientes…'), 'Reaplicada correctamente');
 }); }
 function viewLog(id) { const s = S.shares.find(x => x.id === id); showLog('Registro: ' + s.name, s.log); }
@@ -387,7 +507,7 @@ function checkShare(id) { guard(async () => {
 function delShare(id, force, confirmed) { guard(async () => {
   const s = S.shares.find(x => x.id === id);
   if (!force && !confirmed && !confirm(`¿Borrar «${s.name}»? Se desmontará en los clientes y dejará de compartirse (los archivos NO se borran).`)) return;
-  if (!force && !await ensureSudo(shareIds(s), () => delShare(id, false, true))) return;
+  if (!force && !await ensureSudo(shareIds(s), () => delShare(id, false, true), 'borrar la compartición')) return;
   const j = await api('DELETE', `shares/${id}${force ? '?force=1' : ''}`, null, 'Desmontando en los clientes y dejando de compartir…');
   if (j.deleted) { toast('Compartición eliminada'); if (force) dlgLog.close(); }
   else showLog('No se pudo limpiar todo', j.log, `<button class="btn danger" onclick="delShare('${id}', true)">Quitar de la lista igualmente</button>`);
@@ -427,7 +547,7 @@ function openSudo(id) { sudoHost = id; $('sudoLbl').textContent = 'Contraseña d
 function saveSudo() { guard(async () => {
   await api('POST', `hosts/${sudoHost}/sudo`, { password: $('sudoPw').value }, 'Guardando contraseña…'); dlgSudo.close(); toast('Guardado');
   if (dlgShare.open) checkSudo();
-  if (dlgNeed.open && sudoRetry) { const r = sudoRetry; if (await ensureSudo(r.ids, r.retry)) { dlgNeed.close(); r.retry(); } }
+  if (dlgNeed.open && sudoRetry) { const r = sudoRetry; if (await ensureSudo(r.ids, r.retry, r.what)) { dlgNeed.close(); r.retry(); } }
 }); }
 let found = [];
 function doDiscover() { guard(async () => {
