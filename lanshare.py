@@ -178,7 +178,7 @@ remove_block() { [ -f "$1" ] && sed -i "/^# BEGIN lanshare:$2\$/,/^# END lanshar
 
 def server_setup_script(share, server, clients):
     sid, path, ro = share["id"], share["path"], share.get("readonly")
-    s = PRELUDE + f'P="{path}"\n[ -d "$P" ] || {{ echo "La carpeta $P no existe en {server["name"]}"; exit 1; }}\n'
+    s = PRELUDE + f'P="{path}"\n[ -d "$P" ] || {{ echo "La carpeta $P no existe en el servidor"; exit 1; }}\n'
     if share["type"] == "nfs":
         opts = ["ro" if ro else "rw", "sync", "no_subtree_check"]
         if share.get("map_owner", True):
@@ -236,7 +236,7 @@ echo {b64(keys)} | base64 -d | while read -r k; do
   grep -qxF "$k" "$H/.ssh/authorized_keys" || echo "$k" >> "$H/.ssh/authorized_keys"
 done
 chown {server["user"]}: "$H/.ssh/authorized_keys"; chmod 600 "$H/.ssh/authorized_keys"
-echo "Claves SSH de los clientes autorizadas en {server["name"]}"
+echo "Claves SSH de los clientes autorizadas en el servidor"
 """
     return s
 
@@ -712,12 +712,18 @@ def route(method, parts, data, qs):
             addr = (data.get("address") or "").strip()
             if not re.match(r"^[A-Za-z0-9.-]{1,253}$", addr):
                 raise ApiError("Dirección no válida")
+            try:
+                port = int(data.get("port") or 22)
+            except ValueError:
+                port = 0
+            if not 1 <= port <= 65535:
+                raise ApiError("Puerto no válido")
             h = {
-                "id": data.get("id") or uuid.uuid4().hex[:8],
+                "id": check_word(data.get("id") or uuid.uuid4().hex[:8], "Identificador"),
                 "name": (data.get("name") or addr).strip()[:60],
                 "address": addr,
                 "user": check_word(data.get("user"), "Usuario", r"^[a-z_][a-z0-9_-]{0,31}$"),
-                "port": int(data.get("port") or 22),
+                "port": port,
                 "local": False,
             }
             with LOCK:
