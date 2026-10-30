@@ -12,9 +12,9 @@ Corre en un único equipo y controla el resto por SSH: exporta la carpeta en el 
 
 ![Equipos](docs/screenshots/equipos.png)
 
-**Crear o editar una compartición:** el tipo, el servidor y la carpeta, los clientes y el punto de montaje.
+**Crear o editar una compartición:** un asistente en cuatro pasos (tipo, origen, destino y resumen) que avisa antes de crear si falta alguna contraseña de sudo.
 
-<img src="docs/screenshots/editar-comparticion.png" alt="Editar compartición" width="480">
+<img src="docs/screenshots/nueva-comparticion.png" alt="Resumen del asistente de nueva compartición" width="480">
 
 ## Funcionalidades
 
@@ -93,7 +93,15 @@ loginctl enable-linger $USER
 
 1. **Equipos → Buscar en la red** y añade los equipos que tengan SSH.
 2. **Probar** comprueba la conexión SSH y `sudo`. Si `sudo` pide contraseña, indícala con **Sudo** (se guarda solo en memoria).
-3. **Comparticiones → Nueva compartición:** elige el tipo, el servidor, la carpeta, los clientes y el punto de montaje. Si a algún equipo le falta la contraseña de sudo, el diálogo lo avisa antes de crear, con un botón para indicarla ahí mismo.
+3. **Comparticiones → Nueva compartición** abre un asistente:
+   1. **Tipo:** NFS, Samba o SSHFS.
+   2. **Origen:** el equipo servidor, la carpeta y, según el tipo, sus opciones (usuario y contraseña Samba, escribir como el propietario en NFS).
+   3. **Destino:** los clientes, el punto de montaje y si es de solo lectura.
+   4. **Resumen:** revisa todo antes de crear; **Cambiar** vuelve al paso. Si a algún equipo le falta la contraseña de sudo, lo avisa con un botón para indicarla ahí mismo.
+
+   Al pulsar **Crear** se vuelve a comprobar `sudo` en todos los equipos implicados. Si falta alguna contraseña, aparece un aviso urgente con los equipos afectados. Al indicarlas, la compartición se crea sola.
+
+   Al **Editar** una compartición, el asistente se abre directamente en el resumen.
 
 ## Contraseñas de sudo
 
@@ -103,7 +111,7 @@ LanShare necesita `sudo` en cada equipo para crear, editar, reaplicar o borrar c
 - **Se pierde** al reiniciar el PC, al cerrar sesión, al reiniciar o parar el servicio y al instalar o actualizar con `install.sh`.
 - La columna **Sudo** de la pestaña Equipos indica si hay una contraseña cargada («contraseña en memoria»).
 - Al crear o editar una compartición, el diálogo comprueba `sudo` en el servidor y los clientes elegidos. Si a alguno le falta la contraseña, o la guardada es incorrecta, lo avisa y no deja crear hasta indicarla.
-- Al **Reaplicar** o **Borrar** pasa lo mismo: si falta alguna contraseña, la pide y después continúa sola.
+- Al pulsar **Crear**, **Reaplicar** o **Borrar** se vuelve a comprobar en ese momento. Si falta alguna contraseña, aparece un aviso urgente con los equipos afectados y, al indicarlas, la acción continúa sola.
 - Si aun así falta, LanShare **no cambia nada**: la comprobación previa lo detecta y dice en qué equipos hay que indicarla.
 
 Las comparticiones ya creadas **no** necesitan la contraseña para funcionar. Solo hace falta para gestionarlas.
