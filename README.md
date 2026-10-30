@@ -70,11 +70,29 @@ Desinstalar no quita las comparticiones de los equipos. Bórralas antes desde la
 
 Para desarrollo, ejecútalo directamente desde el repo en otro puerto: `python3 lanshare.py --port 8766`.
 
+### Actualizar
+
+```bash
+cd easy-lan-share
+git pull
+./install.sh
+```
+
+Tus equipos y comparticiones se conservan, pero hay que volver a indicar las contraseñas de sudo.
+
+### Arrancar sin iniciar sesión
+
+El servicio es de usuario, así que arranca cuando inicias sesión. Si LanShare corre en un equipo sin escritorio o al que entras solo por SSH, activa el *linger* para que arranque con el sistema:
+
+```bash
+loginctl enable-linger $USER
+```
+
 ## Uso
 
 1. **Equipos → Buscar en la red** y añade los equipos que tengan SSH.
 2. **Probar** comprueba la conexión SSH y `sudo`. Si `sudo` pide contraseña, indícala con **Sudo** (se guarda solo en memoria).
-3. **Comparticiones → Nueva compartición:** elige el tipo, el servidor, la carpeta, los clientes y el punto de montaje.
+3. **Comparticiones → Nueva compartición:** elige el tipo, el servidor, la carpeta, los clientes y el punto de montaje. Si a algún equipo le falta la contraseña de sudo, el diálogo lo avisa antes de crear, con un botón para indicarla ahí mismo.
 
 ## Contraseñas de sudo
 
@@ -83,7 +101,8 @@ LanShare necesita `sudo` en cada equipo para crear, editar, reaplicar o borrar c
 - **Se guarda solo en la memoria** del proceso de LanShare. Nunca se escribe en disco, ni en `state.json` ni en ningún otro sitio.
 - **Se pierde** al reiniciar el PC, al cerrar sesión, al reiniciar o parar el servicio y al instalar o actualizar con `install.sh`.
 - La columna **Sudo** de la pestaña Equipos indica si hay una contraseña cargada («contraseña en memoria»).
-- Si falta, LanShare **no cambia nada**: la comprobación previa lo detecta y dice en qué equipos hay que indicarla.
+- Al crear o editar una compartición, el diálogo comprueba `sudo` en el servidor y los clientes elegidos. Si a alguno le falta la contraseña, o la guardada es incorrecta, lo avisa y no deja crear hasta indicarla.
+- Si aun así falta, LanShare **no cambia nada**: la comprobación previa lo detecta y dice en qué equipos hay que indicarla.
 
 Las comparticiones ya creadas **no** necesitan la contraseña para funcionar. Solo hace falta para gestionarlas.
 
@@ -112,7 +131,20 @@ Las comparticiones funcionan aunque LanShare esté parado; la app solo hace falt
 - Para evitar peticiones desde otras webs (CSRF) y ataques de DNS rebinding, la API exige la cabecera `X-LanShare: 1` y que el `Host` sea localhost.
 - Las contraseñas de `sudo` se guardan **solo en memoria** y nunca se escriben en disco. Se pierden al reiniciar el servicio.
 - Las contraseñas Samba se guardan en `state.json` porque hacen falta para poder editar la compartición.
+- **Buscar en la red** intenta entrar por SSH con tu clave en cada equipo encontrado, para leer el sistema y saber si `sudo` pide contraseña. No guarda su huella en `known_hosts`. Si algún equipo usa `fail2ban` muy estricto, esos intentos pueden contar como fallidos.
 - Si un equipo tiene `ufw` activo, abre los puertos a mano: NFS 2049, Samba 445.
+
+## Solución de problemas
+
+| Síntoma | Solución |
+|---|---|
+| «necesita la contraseña de sudo» | Indícala con el botón **Sudo** en la pestaña Equipos. |
+| «La clave SSH no está autorizada» | `ssh-copy-id usuario@ip` desde el equipo donde corre LanShare. |
+| `REMOTE HOST IDENTIFICATION HAS CHANGED` (el equipo se ha reinstalado) | `ssh-keygen -R ip` y vuelve a **Probar**. En SSHFS, quita también la huella antigua en cada cliente: `sudo ssh-keygen -R ip -f /etc/lanshare/known_hosts`, y **Reaplica**. |
+| Un servidor ha cambiado de IP | Edita el equipo con la IP nueva y **Reaplica** cada compartición que lo use. Mejor fija la IP o reserva una en el router (DHCP). |
+| El montaje no responde y el servidor está encendido | Revisa el cortafuegos (`sudo ufw allow from 192.168.1.0/24 to any port 2049` para NFS, o `port 445` para Samba). |
+| NFS: no puedo escribir | Activa «Escribir siempre como el propietario de la carpeta» o revisa los permisos de la carpeta en el servidor. |
+| Ver qué ha pasado | Botón **Registro** de la compartición, o `journalctl --user -u lanshare -f` para el servicio. |
 
 ## Estructura
 
@@ -120,4 +152,6 @@ Las comparticiones funcionan aunque LanShare esté parado; la app solo hace falt
 lanshare.py   servidor HTTP, API y generación de los scripts que se ejecutan en los equipos
 index.html    interfaz web (HTML, CSS y JS sin dependencias)
 install.sh    instalador / desinstalador (genera la unidad de systemd --user)
+docs/         capturas del README
+CLAUDE.md     notas para agentes de IA (AGENTS.md es un enlace a este fichero)
 ```
