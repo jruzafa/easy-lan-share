@@ -338,6 +338,24 @@ def preflight(state, share):
         raise ApiError("No se ha cambiado nada. Antes hay que resolver esto:\n\n" + "\n\n".join(bad))
 
 
+def sudo_status(state, ids):
+    """Estado de sudo por equipo, sin cambiar nada: ok, need_pw (falta o es incorrecta) o error (SSH)."""
+    hosts = [get_host(state, i) for i in dict.fromkeys(ids)]
+    if not hosts:
+        return {}
+    with cf.ThreadPoolExecutor(len(hosts)) as ex:
+        results = list(ex.map(lambda h: run_root(h, "true", 20), hosts))
+    res = {}
+    for h, (ok, out) in zip(hosts, results):
+        if ok:
+            res[h["id"]] = {"status": "ok"}
+        elif re.search(r"password is required|incorrect password|Sorry, try again", out):
+            res[h["id"]] = {"status": "need_pw", "wrong": h["id"] in SUDO_PW}
+        else:
+            res[h["id"]] = {"status": "error", "msg": out or "sin respuesta"}
+    return res
+
+
 def apply_share(state, share):
     """Configura servidor y clientes. Devuelve log y fija share['status']."""
     server = get_host(state, share["server"])
@@ -759,6 +777,9 @@ def route(method, parts, data, qs):
             else:
                 SUDO_PW.pop(hid, None)
             return public_state(state)
+
+        case ("POST", ["sudo-check"]):
+            return {"sudo": sudo_status(state, data.get("ids") or [])}
 
         case ("POST", ["hosts", hid, "test"]):
             h = get_host(state, hid)
