@@ -161,6 +161,40 @@ class Operations(TempState):
                 L.route("POST", ["hosts"], body, {})
 
 
+class StaleIp(TempState):
+    """Detección de clientes que han cambiado de IP y ya no autoriza el servidor."""
+
+    def share(self, t):
+        return share(t, clients=["cli"])
+
+    def fake_server(self, text):
+        return mock.patch.object(L, "run_user", lambda host, cmd, timeout=30: (True, text))
+
+    def test_parse_allowed(self):
+        self.assertEqual(L.parse_allowed("nfs", '"/srv/a b" 10.0.0.2(rw,sync) 10.0.0.3(ro)\n'), {"10.0.0.2", "10.0.0.3"})
+        self.assertEqual(L.parse_allowed("samba", "[x]\n   hosts allow = 10.0.0.2 equipo.local 127.0.0.1\n"),
+                         {"10.0.0.2", "equipo.local"})
+
+    def test_nfs_client_with_new_ip_is_stale(self):
+        st = L.fresh_state()
+        with self.fake_server('"/srv/a" 10.0.0.99(rw,sync)'):
+            r = L.stale_clients(st, self.share("nfs"))
+        self.assertEqual([(c["id"], c["address"], c["previous"]) for c in r], [("cli", "10.0.0.2", ["10.0.0.99"])])
+
+    def test_up_to_date_and_sshfs_are_not_stale(self):
+        st = L.fresh_state()
+        with self.fake_server('"/srv/a" 10.0.0.2(rw,sync)'):
+            self.assertEqual(L.stale_clients(st, self.share("nfs")), [])
+        self.assertEqual(L.stale_clients(st, self.share("sshfs")), [])
+
+    def test_samba_and_unreachable_server(self):
+        st = L.fresh_state()
+        with self.fake_server("   hosts allow = 10.0.0.7 127.0.0.1"):
+            self.assertEqual(len(L.stale_clients(st, self.share("samba"))), 1)
+        with mock.patch.object(L, "run_user", lambda *a, **k: (False, "sin respuesta")):
+            self.assertIsNone(L.stale_clients(st, self.share("nfs")))  # no se sabe: no se avisa
+
+
 class HttpSecurity(TempState):
     def setUp(self):
         super().setUp()

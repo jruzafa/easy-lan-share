@@ -142,6 +142,7 @@
 <main>
   <section id="tab-shares">
     <div class="bar"><h2>Comparticiones</h2><button class="btn primary" onclick="openShare()">+ Nueva compartición</button></div>
+    <div id="staleNote" class="note urgent hidden" role="alert"></div>
     <div id="shares" class="grid"></div>
   </section>
 
@@ -304,13 +305,14 @@ document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
 });
 
 function render() {
+  renderStale();
   const sh = $('shares');
   sh.innerHTML = S.shares.length ? S.shares.map(s => {
     const srv = hostById(s.server);
     const cl = s.clients.map(c => `<span class="pill">${esc(hostById(c).name)}</span>`).join('');
     return `<div class="card share">
       <div class="type ${s.type}">${s.type.toUpperCase()}</div>
-      <div><h3>${esc(s.name)} <span class="status ${s.status}">${s.status === 'ok' ? '● activa' : '● con errores'}</span>${s.readonly ? ' <span class="pill">solo lectura</span>' : ''}</h3>
+      <div><h3>${esc(s.name)} <span class="status ${s.status}">${s.status === 'ok' ? '● activa' : '● con errores'}</span>${s.readonly ? ' <span class="pill">solo lectura</span>' : ''}${STALE[s.id] ? ' <span class="pill warn">IP cambiada: reaplicar</span>' : ''}</h3>
         <div class="flow"><b>${esc(srv.name)}</b> <code>${esc(s.path)}</code> → ${cl} <code>${esc(s.mountpoint)}</code></div></div>
       <div class="actions">
         <button class="btn sm" onclick="checkShare('${s.id}')">Comprobar</button>
@@ -467,6 +469,7 @@ function shareForm() {
     smb_name: $('sSmbName').value, smb_user: $('sSmbUser').value, smb_password: $('sSmbPw').value };
 }
 const resultLog = (j, okMsg) => {
+  checkStale();
   if (j.share_status === 'ok') return toast(okMsg);
   showLog(!j.rolled_back ? 'Hubo errores' : j.restored_status === 'ok'
     ? 'No se aplicaron los cambios: se ha restaurado la versión anterior'
@@ -503,6 +506,49 @@ function saveShare() { guard(async () => {
 function applyShare(id) { guard(async () => {
   if (!await ensureSudo(shareIds(S.shares.find(x => x.id === id)), () => applyShare(id), 'reaplicar la compartición')) return;
   resultLog(await api('POST', `shares/${id}/apply`, {}, 'Reaplicando en el servidor y los clientes…'), 'Reaplicada correctamente');
+}); }
+/* Avisa si un cliente ha cambiado de IP (p. ej. por DHCP) y el servidor aún autoriza la anterior:
+   el montaje fallará con «access denied» hasta reaplicar. */
+let STALE = {}, staleAt = 0;
+async function checkStale() {
+  staleAt = Date.now();
+  try { STALE = (await api('GET', 'stale')).stale || {}; } catch (e) { STALE = {}; }
+  render();
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now() - staleAt > 30000) checkStale(); });
+const staleIds = () => Object.keys(STALE).filter(id => S.shares.some(s => s.id === id));
+function renderStale() {
+  const ids = staleIds(), n = $('staleNote');
+  n.classList.toggle('hidden', !ids.length);
+  if (!ids.length) return;
+  const clients = {};
+  ids.forEach(id => STALE[id].forEach(c => {
+    const e = clients[c.id] ??= { ...c, shares: [] };
+    e.shares.push(S.shares.find(s => s.id === id).name);
+  }));
+  n.innerHTML = `<div class="urgent-h"><span class="ico" aria-hidden="true">!</span>${ids.length === 1
+      ? 'Una compartición no se montará hasta reaplicarla' : `${ids.length} comparticiones no se montarán hasta reaplicarlas`}</div>
+    ${Object.values(clients).map(c => `<div><b>${esc(c.name)}</b> ha cambiado de IP: ahora es <code>${esc(c.address)}</code>${c.previous.length
+      ? `, pero el servidor aún autoriza <code>${c.previous.map(esc).join(', ')}</code>` : ''}. Afecta a: ${c.shares.map(esc).join(', ')}.</div>`).join('')}
+    <div style="margin-top:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap">
+      <button class="btn primary sm" onclick="reapplyStale()">${ids.length === 1 ? 'Reaplicar ahora' : 'Reaplicar todas'}</button>
+      <span class="hint">Para que no vuelva a pasar, fija la IP del equipo (ver «Solución de problemas» en el README).</span></div>`;
+}
+function reapplyStale() { guard(async () => {
+  const ids = staleIds();
+  const hosts = [...new Set(ids.flatMap(id => shareIds(S.shares.find(s => s.id === id))))];
+  if (!await ensureSudo(hosts, reapplyStale, ids.length === 1 ? 'reaplicar la compartición' : 'reaplicar las comparticiones')) return;
+  const errs = [];
+  busyOn('Reaplicando…');
+  try {
+    for (const [i, id] of ids.entries()) {
+      const s = S.shares.find(x => x.id === id);
+      const j = await api('POST', `shares/${id}/apply`, {}, `Reaplicando ${i + 1} de ${ids.length}: ${s.name}…`);
+      if (j.share_status !== 'ok') errs.push(`== ${s.name}\n${j.log}`);
+    }
+  } finally { busyOff(); }
+  await checkStale();
+  errs.length ? showLog('Algunas comparticiones dieron errores', errs.join('\n\n')) : toast(ids.length === 1 ? 'Reaplicada correctamente' : 'Reaplicadas correctamente');
 }); }
 function viewLog(id) { const s = S.shares.find(x => x.id === id); showLog('Registro: ' + s.name, s.log); }
 function checkShare(id) { guard(async () => {
@@ -581,7 +627,7 @@ function doDiscover() { guard(async () => {
 }); }
 function addFound(i) { dlgDisc.close(); const h = found[i]; openHost(null, { name: h.hostname || h.name || h.address, address: h.address, user: h.user }); }
 
-guard(() => api('GET', 'state', null, 'Cargando…'));
+guard(async () => { await api('GET', 'state', null, 'Cargando…'); checkStale(); });
 </script>
 </body>
 </html>

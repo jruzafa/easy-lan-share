@@ -442,6 +442,48 @@ def check_share(state, share):
     return res
 
 
+def parse_allowed(share_type, text):
+    """Direcciones que autoriza la configuración del servidor (exportación NFS o «hosts allow» de Samba)."""
+    if share_type == "nfs":
+        # "/ruta" ip1(opciones) ip2(opciones)
+        return {t.split("(")[0] for line in text.splitlines() for t in line.split()[1:] if "(" in t}
+    m = re.search(r"hosts allow\s*=\s*(.+)", text)
+    return set(m.group(1).split()) - {"127.0.0.1"} if m else set()
+
+
+def stale_clients(state, share):
+    """Clientes cuya dirección actual no autoriza el servidor (p. ej. porque cambió su IP por DHCP).
+    Lee la configuración del servidor sin sudo. Devuelve None si no se puede saber."""
+    sid = share["id"]
+    if share["type"] == "nfs":
+        cmd = f"cat /etc/exports.d/lanshare-{sid}.exports"
+    elif share["type"] == "samba":
+        cmd = f"sed -n '/^# BEGIN lanshare:{sid}$/,/^# END lanshare:{sid}$/p' /etc/samba/lanshare.conf"
+    else:
+        return []  # SSHFS entra por clave: la IP del cliente da igual
+    try:
+        server = get_host(state, share["server"])
+    except ApiError:
+        return None
+    ok, out = run_user(server, cmd, 15)
+    if not ok:
+        return None
+    allowed = parse_allowed(share["type"], out)
+    clients = [h for h in state["hosts"] if h["id"] in share["clients"]]
+    previous = sorted(allowed - {c["address"] for c in clients})  # las que ya no tiene ningún cliente
+    return [{"id": c["id"], "name": c["name"], "address": c["address"], "previous": previous}
+            for c in clients if c["address"] not in allowed]
+
+
+def stale_shares(state):
+    shares = [s for s in state["shares"] if s["type"] in ("nfs", "samba")]
+    if not shares:
+        return {}
+    with cf.ThreadPoolExecutor(min(len(shares), 16)) as ex:
+        results = list(ex.map(lambda s: stale_clients(state, s), shares))
+    return {s["id"]: r for s, r in zip(shares, results) if r}
+
+
 def validate_share(state, data, old=None):
     t = data.get("type")
     if t not in ("nfs", "samba", "sshfs"):
@@ -866,6 +908,9 @@ def route(method, parts, data, qs):
                 share["log"] = apply_share(state, share)
                 state = store_share(share)
             return {"share_status": share["status"], "log": share["log"], **public_state(state)}
+
+        case ("GET", ["stale"]):
+            return {"stale": stale_shares(state)}
 
         case ("POST", ["shares", sid, "check"]):
             return {"result": check_share(state, get_share(state, sid))}

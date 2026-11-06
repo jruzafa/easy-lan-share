@@ -30,6 +30,7 @@ Corre en un único equipo y controla el resto por SSH: exporta la carpeta en el 
   - **SSHFS**: cifrado por SSH, sin servicios extra en el servidor.
 - **Gestión completa:** crear, editar, reaplicar, comprobar el montaje, ver el registro y borrar.
 - **Edición segura:** si los cambios fallan, se deshacen y se vuelve a montar la versión anterior.
+- **Aviso de cambio de IP:** si un cliente ha cambiado de IP y el servidor aún autoriza la anterior (NFS y Samba), lo avisa y permite reaplicar todo de una vez.
 - **Montajes persistentes** en `/etc/fstab` con `x-systemd.automount` y `nofail`: sobreviven a reinicios y no bloquean el arranque si el servidor está apagado.
 - **Comprobación previa** de SSH y `sudo` en todos los equipos antes de cambiar nada.
 - Instala automáticamente los paquetes que falten (`nfs-kernel-server`, `nfs-common`, `samba`, `cifs-utils`, `sshfs`).
@@ -151,10 +152,24 @@ Las comparticiones funcionan aunque LanShare esté parado; la app solo hace falt
 | «necesita la contraseña de sudo» | Indícala con el botón **Sudo** en la pestaña Equipos. |
 | «La clave SSH no está autorizada» | `ssh-copy-id usuario@ip` desde el equipo donde corre LanShare. |
 | `REMOTE HOST IDENTIFICATION HAS CHANGED` (el equipo se ha reinstalado) | `ssh-keygen -R ip` y vuelve a **Probar**. En SSHFS, quita también la huella antigua en cada cliente: `sudo ssh-keygen -R ip -f /etc/lanshare/known_hosts`, y **Reaplica**. |
+| Al encender el PC no se montan las comparticiones (`access denied by server` en `journalctl -u mnt-*.mount`) | El cliente ha cambiado de IP por DHCP y el servidor solo autoriza la anterior. LanShare lo avisa arriba en **Comparticiones**, con un botón **Reaplicar todas**. Para que no vuelva a pasar, fija la IP del cliente: resérvala en el router (DHCP) o ponla fija en el equipo (ver abajo). |
 | Un servidor ha cambiado de IP | Edita el equipo con la IP nueva y **Reaplica** cada compartición que lo use. Mejor fija la IP o reserva una en el router (DHCP). |
 | El montaje no responde y el servidor está encendido | Revisa el cortafuegos (`sudo ufw allow from 192.168.1.0/24 to any port 2049` para NFS, o `port 445` para Samba). |
 | NFS: no puedo escribir | Activa «Escribir siempre como el propietario de la carpeta» o revisa los permisos de la carpeta en el servidor. |
 | Ver qué ha pasado | Botón **Registro** de la compartición, o `journalctl --user -u lanshare -f` para el servicio. |
+
+### Poner una IP fija en un equipo
+
+Lo mejor es reservar la IP en el router, asociada a la MAC del equipo. Si no puedes, ponla fija en el propio equipo con NetworkManager. Elige una IP de tu red que esté libre y **fuera del rango que reparte el DHCP del router**:
+
+```bash
+nmcli con show --active          # nombre de la conexión, p. ej. "Wired connection 1"
+sudo nmcli con mod "Wired connection 1" ipv4.method manual \
+  ipv4.addresses 192.168.1.20/24 ipv4.gateway 192.168.1.1
+sudo nmcli con up "Wired connection 1"
+```
+
+Después, en LanShare, pulsa **Reaplicar todas** en el aviso de cambio de IP. Para volver a DHCP: `sudo nmcli con mod "Wired connection 1" ipv4.method auto ipv4.addresses "" ipv4.gateway ""` y `sudo nmcli con up "Wired connection 1"`.
 
 ## Estructura
 
