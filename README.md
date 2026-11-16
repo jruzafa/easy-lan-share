@@ -179,7 +179,7 @@ index.html    interfaz web (HTML, CSS y JS sin dependencias)
 install.sh    instalador / desinstalador (genera la unidad de systemd --user)
 tests/        pruebas (python3 -m unittest discover -s tests); no tocan ningún equipo
 docs/         capturas del README
-CLAUDE.md     notas para agentes de IA (AGENTS.md es un enlace a este fichero)
+AGENTS.md     notas para agentes de IA (CLAUDE.md lo importa con @AGENTS.md)
 ```
 
 ## Licencia
